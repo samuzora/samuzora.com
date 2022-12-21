@@ -1,0 +1,12 @@
+.spinner {
+    margin: auto;
+    width: 80vw;
+    height: 1px;
+    background: white;
+    animation: loading 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes loading {
+    from {transform: scaleX(0)}
+    to {transform: scaleX(1)}
+}

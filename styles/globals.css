@@ -1,0 +1,25 @@
+.background {
+    position: fixed;
+    background: linear-gradient(60deg, rgb(0, 35, 25), rgb(25, 0, 35));
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: -1;
+
+}
+
+body {
+    color: rgb(170, 170, 170);
+    font-size: 18px;
+    background: transparent;
+}
+
+a {
+    color: rgb(170, 170, 170);
+    text-decoration: none;
+}
+
+a:hover, a:active {
+    color: rgb(170, 170, 170);
+}
