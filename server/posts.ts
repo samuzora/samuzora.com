@@ -1,8 +1,8 @@
 import fs from 'fs'
 import matter from 'gray-matter'
-import { join } from 'path'
+import { join, resolve } from 'path'
 
-const postsDirectory = join(process.cwd(), '_posts')
+const postsDirectory = resolve('./_posts')
 
 export interface Post {
   title: string,

@@ -2,7 +2,7 @@ import fs from 'fs'
 import Markdown from 'markdown-to-jsx'
 import { GetStaticProps } from 'next'
 import Head from 'next/head'
-import { join } from 'path'
+import { resolve } from 'path'
 import Container from '../components/Container'
 import styles from '../styles/Home.module.scss'
 
@@ -27,7 +27,7 @@ export default (props: Props) => {
 }
 
 export const getStaticProps: GetStaticProps<Props> = async () => {
-  const filename = join(process.cwd(), "_about.md")
+  const filename = resolve('_about.md')
   const content = fs.readFileSync(filename, { encoding: "utf8" })
   return {
     props: { content }
