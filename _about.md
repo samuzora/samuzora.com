@@ -37,6 +37,10 @@ some sort.
 - Codegate Junior - 4th place (irl in seoul!!)
 - STACK the Flags - 3rd place (JC category)
 
+**2023**
+
+- Sieberrsec - 1st place
+
 ---
 
 ## stuff
