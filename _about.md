@@ -41,6 +41,17 @@ some sort.
 
 - Sieberrsec - 1st place
 
+### challenge setter
+
+**2021**
+
+- HACK@AC
+
+**2022**
+
+- Cyberleague Quarterfinals
+- HACK@AC (Organizer + Setter)
+
 ---
 
 ## stuff
