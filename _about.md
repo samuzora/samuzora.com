@@ -14,7 +14,7 @@ some sort.
 
 ### teams
 
-[1/cosd](https://ctftime.org/team/177451)
+[wakatta](https://ctftime.org/team/177451)
 
 [WreckTheLine](https://ctftime.org/team/57908)
 
@@ -22,11 +22,9 @@ some sort.
 
 ### notable wins
 
-**2021**
+**2023**
 
-- YCEP - 3rd place
-- MetaRed - 1st place
-- idekCTF - 3rd place (uni category)
+- Sieberrsec - 1st place
 
 **2022**
 
@@ -37,24 +35,32 @@ some sort.
 - Codegate Junior - 4th place (irl in seoul!!)
 - STACK the Flags - 3rd place (JC category)
 
-**2023**
+**2021**
 
-- Sieberrsec - 1st place
+- YCEP - 3rd place
+- MetaRed - 1st place
+- idekCTF - 3rd place (uni category)
 
 ### challenge setter
 
-**2021**
+can't keep winning ctfs all the time
 
-- HACK@AC
+**2023**
+
+- HackTM CTF Quals
 
 **2022**
 
 - Cyberleague Quarterfinals
 - HACK@AC (Organizer + Setter)
 
+**2021**
+
+- HACK@AC
+
 ---
 
-## stuff
+## other projects
 
 <br>
 
