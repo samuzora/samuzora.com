@@ -48,11 +48,15 @@ export const getStaticProps: GetStaticProps<Props, Params> = async (context) => 
   const params = context.params!
   const post = await getPost(params.slug)
   return {
-    props: { post }
+    props: { post },
   }
 }
 
 export async function getStaticPaths() {
   const slugs = await getSlugs()
-  return { paths: slugs.map(slug => `/posts/${slug}`), fallback: true }
+  console.log("got paths")
+  return { 
+    paths: slugs.map(slug => `/posts/${slug}`), 
+    fallback: false 
+  }
 }

@@ -5,6 +5,7 @@ import { IBM_Plex_Sans } from '@next/font/google'
 import Navbar from '../components/Navbar'
 import { useRouter } from 'next/router'
 import Loading from '../components/Loading'
+import Container from '../components/Container'
 
 const font = IBM_Plex_Sans({
   weight: '300',
@@ -16,7 +17,13 @@ export default function App({ Component, pageProps }: AppProps) {
 
   if (router.isFallback) {
     return (
-      <Loading />
+      <main className={font.className}>
+        <div className="background" />
+        <Navbar />
+        <Container>
+          <Loading />
+        </Container>
+      </main>
     )
   } else {
     return (

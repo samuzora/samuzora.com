@@ -1,6 +1,6 @@
 .spinner {
-    margin: auto;
-    width: 80vw;
+    margin: calc(50vh - 70px - 32px - 16px) auto;
+    max-width: 60em;
     height: 1px;
     background: white;
     animation: loading 0.5s ease-in-out infinite alternate;

@@ -30,6 +30,6 @@ export const getStaticProps: GetStaticProps<Props> = async () => {
   const filename = join(process.cwd(), "_about.md")
   const content = fs.readFileSync(filename, { encoding: "utf8" })
   return {
-    props: { content }
+    props: { content },
   }
 }
