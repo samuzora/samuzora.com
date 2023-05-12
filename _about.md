@@ -10,23 +10,22 @@ love coding, hacking, and winning CTFs :)
 I main web and pwn in CTFs, and maybe anything else that might involve RCE of
 some sort.
 
-<br>
-
-### teams
+### my teams
 
 [wakatta](https://ctftime.org/team/177451)
 
 [WreckTheLine](https://ctftime.org/team/57908)
 
-<br>
+---
 
 ### notable wins
 
-**2023**
+#### 2023
 
 - Sieberrsec - 1st place
+- Cyberthon - 2nd place + Top in CSIT category
 
-**2022**
+#### 2022
 
 - Sieberrsec - 3rd place
 - Winja CTF x Nullcon Berlin - 3rd place
@@ -35,28 +34,26 @@ some sort.
 - Codegate Junior - 4th place (irl in seoul!!)
 - STACK the Flags - 3rd place (JC category)
 
-**2021**
+#### 2021
 
 - YCEP - 3rd place
 - MetaRed - 1st place
 - idekCTF - 3rd place (uni category)
 
+---
+
 ### challenge setter
 
-can't keep winning ctfs all the time
-
-<br>
-
-**2023**
+#### 2023
 
 - HackTM CTF Quals
 
-**2022**
+#### 2022
 
 - Cyberleague Quarterfinals
 - HACK@AC (Organizer + Setter)
 
-**2021**
+#### 2021
 
 - HACK@AC
 
@@ -64,16 +61,12 @@ can't keep winning ctfs all the time
 
 ## other projects
 
-<br>
-
 ### ffuzzer
 
 A format string vulnerability fuzzer, made specially to fuzz memory leaks from
 format string vulns.
 
 Github: <https://github.com/samuzora/ffuzzer>
-
-<br>
 
 ### ctf-cord
 
