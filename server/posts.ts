@@ -19,7 +19,14 @@ export async function getSlugs() {
 export async function getPosts() {
   const slugs = await getSlugs()
   const posts = await Promise.all(slugs.map(async slug => await getPost(slug)))
-  return posts
+  return posts.sort((a, b) => {
+    if (a.date > b.date) {
+      return 1
+    } else {
+      return -1
+    }
+  }
+  )
 }
 
 export async function getPost(slug: string): Promise<Post> {

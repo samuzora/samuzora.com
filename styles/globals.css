@@ -6,20 +6,40 @@
     width: 100vw;
     height: 100vh;
     z-index: -1;
-
 }
 
 body {
     color: rgb(170, 170, 170);
-    font-size: 18px;
+    font-size: 15px;
     background: transparent;
 }
 
 a {
     color: rgb(170, 170, 170);
+    filter: brightness(150%);
     text-decoration: none;
 }
 
 a:hover, a:active {
     color: rgb(170, 170, 170);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    scroll-margin-top: 100px;
+}
+
+h1 {
+    padding-top: 20px;
+}
+
+h2 {
+    padding-top: 8px;
+}
+
+h3 {
+    padding-top: 6px;
+}
+
+h4, h5, h6 {
+    padding-top: 3px;
 }

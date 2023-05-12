@@ -12,7 +12,7 @@ export default function Thumbnail(props: Props) {
   return (
     <>
       <div className={styles.card} onClick={() => router.push(`posts/${props.post.slug}`)}>
-        <h4>{props.post.title}</h4>
+        <div className={styles.title}>{props.post.title}</div>
         <b>{props.post.date}</b>
       </div>
     </>

@@ -1,8 +1,5 @@
 .greeter {
-    margin: 25vh 0;
+    margin: calc(50vh - 70px - 32px - 16px - 18px - 16px) 0 calc(50vh - 70px);
     font-size: 70px;
     text-align: center;
-}
-
-.content {
 }
