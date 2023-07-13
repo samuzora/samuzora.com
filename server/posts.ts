@@ -11,7 +11,7 @@ export interface Post {
   slug: string
 }
 
-export async function getSlugs() {
+export async function getSlugs(): Promise<string[]> {
   const slugs = fs.readdirSync(postsDirectory).map(slug => slug.replace('.md', ''))
   return slugs
 }
