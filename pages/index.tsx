@@ -15,6 +15,11 @@ export default (props: Props) => {
     <div>
       <Head>
         <title>samuzora</title>
+        <meta
+          name="description"
+          content="samuzora's blog - ctfs and more stuff"
+          key="desc"
+        />
       </Head>
       <Container>
         <div className={styles.greeter}>
