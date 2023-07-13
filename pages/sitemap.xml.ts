@@ -1,3 +1,4 @@
+import { GetServerSideProps } from "next"
 import { getSlugs } from "../server/posts"
 
 //pages/sitemap.xml.js
@@ -30,16 +31,16 @@ function generateSiteMap(posts: string[]) {
  `
 }
 
-export async function getServerSideProps({ res }) {
+export const getServerSideProps: GetServerSideProps = async (ctx) => {
   const posts = await getSlugs()
 
   // We generate the XML sitemap with the posts data
   const sitemap = generateSiteMap(posts)
 
-  res.setHeader('Content-Type', 'text/xml')
+  ctx.res.setHeader('Content-Type', 'text/xml')
   // we send the XML to the browser
-  res.write(sitemap)
-  res.end()
+  ctx.res.write(sitemap)
+  ctx.res.end()
 
   return {
     props: {},
