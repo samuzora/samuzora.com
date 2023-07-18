@@ -3,3 +3,18 @@
     font-size: 70px;
     text-align: center;
 }
+
+.footer {
+    margin: auto;
+    display: flex;
+    justify-content: center;
+
+    column-gap: 10px;
+
+    font-size: 12px;
+    margin-top: 200px;
+}
+
+.footer a:hover {
+    opacity: 50%;
+}
