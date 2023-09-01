@@ -1,75 +1,45 @@
-# hello world
+# about
 
-I'm samuzora, a Singaporean JC student, CTF player and web developer hobbyist. I
-love coding, hacking, and winning CTFs :)
+konnichiwassup! I'm Lucas Tan, a 17 year old high school student at Anglo-Chinese School (Independent). I'm currently studying PCME and will be taking my IBDP exam in 2024.
+
+In my high school, I'm the vice-chair of the Robotics Technology Society, and lead my juniors in ctfs or other app dev projects.
+
+I'm also a member of [WreckTheLine](https://ctftime.org/team/57908), one of the top 10 ctf teams globally on <https://ctftime.org>.
+
+I main web and pwn in ctfs, and maybe anything else that might involve RCE of some sort.
+
+You can check out some of my writeups/blogs here: <https://samuzora.com/posts>
+
+Socials:
+
+- [linkedin](https://www.linkedin.com/in/lucas-tan-yi-jie-591290188/)
+- [github](https://github.com/samuzora)
+- [twitter](https://twitter.com/_samuzora)
+- [insta](https://www.instagram.com/samu_zora/)
+- discord: samuzora
 
 ---
-
-## ctfs
-
-I main web and pwn in CTFs, and maybe anything else that might involve RCE of
-some sort.
-
-### my teams
-
-[wakatta](https://ctftime.org/team/177451)
-
-[WreckTheLine](https://ctftime.org/team/57908)
-
----
-
-### notable wins
 
 #### 2023
 
-- Sieberrsec - 1st place
-- Cyberthon - 2nd place + Top in CSIT category
+- Sieberrsec - 1st
+- Cyberthon - 2nd
+- AYCEP - 3rd
+- CDDC - 5th
+- Grey Cat the Flag - 6th
+- Codegate Junior - 7th
 
 #### 2022
 
-- Sieberrsec - 3rd place
-- Winja CTF x Nullcon Berlin - 3rd place
-- Whitehacks - 3rd place
-- YCEP - 1st place
-- Codegate Junior - 4th place (irl in seoul!!)
-- STACK the Flags - 3rd place (JC category)
+- Sieberrsec - 3rd
+- Winja CTF x Nullcon Berlin - 3rd
+- Whitehacks - 3rd
+- YCEP - 1st
+- Codegate Junior - 4th
+- STACK the Flags (JC category) - 3rd
 
 #### 2021
 
-- YCEP - 3rd place
-- MetaRed - 1st place
-- idekCTF - 3rd place (uni category)
-
----
-
-### challenge setter
-
-#### 2023
-
-- HackTM CTF Quals
-
-#### 2022
-
-- Cyberleague Quarterfinals
-- HACK@AC (Organizer + Setter)
-
-#### 2021
-
-- HACK@AC
-
----
-
-## other projects
-
-### ffuzzer
-
-A format string vulnerability fuzzer, made specially to fuzz memory leaks from
-format string vulns.
-
-Github: <https://github.com/samuzora/ffuzzer>
-
-### ctf-cord
-
-A CTF Discord bot to manage channels, reminders and more!
-
-Github: <https://github.com/samuzora/CTF-cord>
+- YCEP - 3rd
+- MetaRed - 1st
+- idekCTF (uni category) - 3rd
