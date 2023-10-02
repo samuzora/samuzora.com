@@ -20,7 +20,7 @@ export async function getPosts() {
   const slugs = await getSlugs()
   const posts = await Promise.all(slugs.map(async slug => await getPost(slug)))
   return posts.sort((a, b) => {
-    if (a.date > b.date) {
+    if (Date.parse(a.date) < Date.parse(b.date)) {
       return 1
     } else {
       return -1

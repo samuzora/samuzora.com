@@ -43,3 +43,26 @@ h3 {
 h4, h5, h6 {
     padding-top: 3px;
 }
+
+img {
+    display: block;
+    margin: 32px auto;
+    width: 70%;
+}
+
+code {
+    background: rgba(64, 64, 64, 50%);
+    padding: 2px 4px;
+    border-radius: 5px;
+    font-size: 0.8rem;
+}
+
+blockquote {
+    background: rgba(40, 40, 40, 50%);
+    margin: 15px 10px;
+    padding-left: 20px;
+    padding: 5px;
+    border-left: 5px solid rgb(64, 64, 64);
+    border-bottom-right-radius: 10px;
+    border-top-right-radius: 10px;
+}
