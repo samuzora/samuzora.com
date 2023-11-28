@@ -1,36 +1,33 @@
 {
-  "name": "samuzora.github.io",
-  "version": "0.1.0",
+  "name": "hexo-site",
+  "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "build": "hexo generate",
+    "clean": "hexo clean",
+    "deploy": "hexo deploy",
+    "server": "hexo server"
+  },
+  "hexo": {
+    "version": "7.0.0"
   },
   "dependencies": {
-    "@emotion/react": "^11.11.1",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.14.0",
-    "@mui/material": "^5.14.0",
-    "@next/font": "^13.0.6",
-    "@types/marked": "^4.0.8",
-    "@types/node": "18.11.13",
-    "@types/react": "18.0.26",
-    "@types/react-dom": "18.0.9",
-    "@types/react-syntax-highlighter": "^15.5.5",
-    "eslint": "8.29.0",
-    "eslint-config-next": "13.0.6",
-    "gray-matter": "^4.0.3",
-    "markdown-to-jsx": "^7.1.8",
-    "next": "13.0.6",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "react-markdown": "^8.0.4",
-    "react-syntax-highlighter": "^15.5.0",
-    "rehype-raw": "^6.1.1",
-    "rsuite": "^5.23.2",
-    "sass": "^1.56.2",
-    "typescript": "4.9.4"
+    "hexo": "^7.0.0",
+    "hexo-all-minifier": "^0.5.7",
+    "hexo-generator-archive": "^2.0.0",
+    "hexo-generator-category": "^2.0.0",
+    "hexo-generator-feed": "^3.0.0",
+    "hexo-generator-index": "^3.0.0",
+    "hexo-generator-search": "^2.4.3",
+    "hexo-generator-searchdb": "^1.4.1",
+    "hexo-generator-sitemap": "^3.0.1",
+    "hexo-generator-tag": "^2.0.0",
+    "hexo-renderer-ejs": "^2.0.0",
+    "hexo-renderer-marked": "^6.0.0",
+    "hexo-renderer-pug": "^3.0.0",
+    "hexo-renderer-sass": "^0.5.0",
+    "hexo-renderer-stylus": "^3.0.0",
+    "hexo-server": "^3.0.0",
+    "hexo-theme-landscape": "^1.0.0"
   }
 }
