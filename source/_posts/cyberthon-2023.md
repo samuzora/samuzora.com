@@ -7,15 +7,9 @@ tags:
     - pwn
 ---
 
-Writeups for Cyberthon 2023
+Writeups for Cyberthon 2023 Pwn challenges
 
-- <a href="#allfoods">Allfoods</a>
-- <a href="#flagmin">Flagmin</a>
-- <a href="#passgen">Passgen</a>
-- <a href="#tune-of-apocalypse">Tune of Apocalypse</a>
-- <a href="#wordpocalypse">Wordpocalypse</a>
-
-<h1 id="allfoods">Allfoods</h1>
+# Allfoods
 
 This challenge is a simple format string read and write. In this case, full
 RELRO is enabled so we can't overwrite the GOT. We can leak a stack address and
@@ -75,7 +69,7 @@ if __name__ == "__main__":
 
 ---
 
-<h1 id="flagmin">Flagmin</h1>
+# Flagmin
 
 This challenge is also a format string challenge using `snprintf`. The binary
 checks if the parsed format string contains a "username-password" pair that was
@@ -127,7 +121,7 @@ if __name__ == "__main__":
 
 ---
 
-<h1 id="passgen">Passgen</h1>
+# Passgen
 
 In this challenge, our goal is to leak the seed and hence guess the password
 the binary generated.
@@ -207,7 +201,7 @@ if __name__ == "__main__":
 
 ---
 
-<h1 id="tune-of-apocalypse">Tune of Apocalypse</h1>
+# Tune of Apocalypse
 
 This is a Windows ret2win challenge. Most of the challenge is actually just red
 herring/serves to make the challenge more approachable but tedious. We can use
@@ -249,7 +243,7 @@ print(p.clean())
 
 ---
 
-<h1 id="wordpocalypse">Wordpocalypse</h1>
+# Wordpocalypse
 
 This challenge involves overwriting the GOT using an array OOB. I struggled a
 lot with trying to find a good function to overwrite, because the write is per
