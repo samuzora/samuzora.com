@@ -35,7 +35,7 @@ ctfs:
     rank: 1st place
 
   - name: Sieberrsec
-    date: 2022-12-27
+    date: 2021-12-27
     rank: 3rd place
 
   - name: Codegate Junior
@@ -47,10 +47,24 @@ ctfs:
     rank: 2nd place
     url: https://ctftime.org/event/1738
 
+  - name: YCEP
+    date: 2022-06-23
+    rank: 1st place
+
   - name: Winja x Nullcon
     date: 2022-04-09
     rank: 3rd place
     url: https://ctftime.org/event/1603
+
+  - name: Imperial CTF
+    date: 2022-04-03
+    rank: 13th place
+    url: https://ctftime.org/event/1608
+
+  - name: Vu Cyberthon
+    date: 2022-02-18
+    rank: 9th place
+    url: https://ctftime.org/event/1518
 
   - name: idekCTF
     date: 2021-12-13
@@ -58,8 +72,8 @@ ctfs:
     url: https://ctftime.org/event/1512
 
   - name: MetaRed CTF
-    date: 2021-12-13
-    rank: 7th place
+    date: 2021-12-16
+    rank: 1st place
     url: https://ctftime.org/event/1490
 ---
 

@@ -36,7 +36,15 @@
                     <span class="ctf-title"><%= ctf.name %></span>
                   <% } %>
                   <% if (ctf.rank) { %>
-                    <div class="ctf-placing"><%= ctf.rank %></div>
+                    <% if (ctf.rank === "1st place") { %>
+                      <div class="ctf-placing ctf-placing-1st"><%= ctf.rank %></div>
+                    <% } else if (ctf.rank === "2nd place") { %>
+                        <div class="ctf-placing ctf-placing-2nd"><%= ctf.rank %></div>
+                    <% } else if (ctf.rank === "3rd place") { %>
+                        <div class="ctf-placing ctf-placing-3rd"><%= ctf.rank %></div>
+                    <% } else { %>
+                        <div class="ctf-placing"><%= ctf.rank %></div>
+                      <% } %>
                   <% } %>
                 </li>
               <% }) %>

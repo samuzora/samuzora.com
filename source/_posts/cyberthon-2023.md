@@ -2,9 +2,9 @@
 title: Cyberthon 2023 Writeups
 date: 2023-05-11
 categories:
-    - writeups
+  - writeups
 tags:
-    - pwn
+  - pwn
 ---
 
 Writeups for Cyberthon 2023 Pwn challenges
@@ -16,8 +16,6 @@ RELRO is enabled so we can't overwrite the GOT. We can leak a stack address and
 use it to calculate the address of RIP.
 
 ```py
-#!/usr/bin/env python3
-
 from pwn import *
 
 exe = ELF("./allfoods_patched")
@@ -85,8 +83,6 @@ to write to the output string. Extra characters after 0x80 are truncated, hence
 we can use %c to push :n out of the string and put :y just before it.
 
 ```py
-#!/usr/bin/env python3
-
 from pwn import *
 
 exe = ELF("./flagmin_patched")
@@ -154,8 +150,6 @@ int main(int argc, char **argv) {
 ```
 
 ```py
-#!/usr/bin/env python3
-
 from pwn import *
 import os
 
@@ -299,8 +293,6 @@ always 0xc0. Besides that, the rest of the payload should be fairly
 straightforward:
 
 ```py
-#!/usr/bin/env python3
-
 from pwn import *
 
 exe = ELF("./wordpocalypse")
