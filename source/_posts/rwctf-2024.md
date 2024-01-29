@@ -384,11 +384,12 @@ While I was trying to get file write in the SQLi, adragos found path traversal
 (`\` will fail in catalina reverse proxy, and `#` strips out the `.html`
 extension (not necessary for final payload though))
 
-This is super cool cos with a regular `file:///path/to/dir/<input>` we can
+The additional `..\` is apparently parsed such that the hostname of
+`file://host/path` can be controlled. This is super cool because we can
 escalate to RFI, which bypassed the need for Postgres file write.
 
-(from here on he already solved everything, but I needed to solve it so I tried
-on my own anyway)
+(from here on adragos already solved everything, but since I had to solve it I
+tried on my own anyway)
 
 So I hosted an FTP server to load the attacker template.
 
@@ -397,7 +398,12 @@ So I hosted an FTP server to load the attacker template.
 Thymeleaf 13.0.2 is quite annoying cos it added a lot of restrictions to SSTI
 in "unsafe" context, by preventing instantiation of several common key classes.
 This was also my first time doing Thymeleaf SSTI (or Java SSTI in general) so I
-was quite lost. After adragos solved the challenge I peeked at his payload then tried to make my own.
+was quite lost. After adragos solved the challenge I peeked at his payload then
+tried to make my own.
+
+The trick is to look for gadgets in the other libraries loaded in the app, that
+allow you to instantiate classes with calls such as
+`constructor.newInstance(args)` etc.
 
 My final payload:
 ```
@@ -424,7 +430,7 @@ blocked by Thymeleaf I think? But the class instantiated from here is useless
 cos I can't call any methods on it for some reason? (need to research more)
 
 Anyway, `org.postgresql.util.ObjectFactory` has the `.instantiate` method which
-pcan be used to create `FileSystemXmlApplicationContext` with correct
+can be used to create `FileSystemXmlApplicationContext` with correct
 arguments. This class will parse external XML using templating processing,
 which we can again host on attacker server. This time, our SSTI will have 0
 restrictions :)
@@ -443,7 +449,7 @@ restrictions :)
 </beans>
 ```
 
-Flag: `rwctf{b2ed2442-b9e0-11ee-a668-00163e01b905}` (probably dynamic flag so...)
+Flag: `rwctf{b2ed2442-b9e0-11ee-a668-00163e01b905}`
 
 Anyway, this was a good intro back to CTFs after I stopped for so long. I
 should probably play more (DiceCTF Quals coming soon :O)
