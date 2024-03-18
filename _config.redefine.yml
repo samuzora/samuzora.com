@@ -170,16 +170,18 @@ navbar:
     Home: 
       path: / 
       icon: fa-regular fa-house # can be empty
-    Archives: 
+    About:
+      path: /about
+      icon: fa-regular fa-user
+    Posts: 
       path: /archives 
       icon: fa-regular fa-archive # can be empty
     # Status: 
     #   path: https://status.evanluo.top/
     #   icon: fa-regular fa-chart-bar
-    About: 
-      icon: fa-regular fa-user
+    Others: 
       submenus:
-        Me: /about
+        Friends: /friends
         Source: https://github.com/samuzora/blog
     # Links: 
     #   icon: fa-regular fa-link
@@ -241,6 +243,13 @@ articles:
     image_caption: false # Whether to display image caption
     link_icon: true # Whether to display link icon
     title_alignment: left # Title alignment. left, center
+    headings_top_spacing: # Top spacing for headings from h1-h6
+      h1: 2.5rem
+      h2: 2.0rem
+      h3: 1.5rem
+      h4: 1.0rem
+      h5: 0.5rem
+      h6: 0.3rem
   # Word count. Requires hexo-wordcount (npm install hexo-wordcount). See https://github.com/willin/hexo-wordcount
   word_count:
     enable: true # Whether to enable
@@ -335,7 +344,7 @@ footer:
   # Icon in footer, write fontawesome icon code here
   icon: '<i class="fa-solid fa-heart fa-beat" style="--fa-animation-duration: 0.5s; color: #f54545"></i>'
   # The start time of the website, format: YYYY/MM/DD HH:mm:ss
-  start: 2022/8/17 11:45:14
+  start: 2022/08/17 11:45:14
   # Footer message
   customize:
   # ICP record number. See https://beian.miit.gov.cn/
