@@ -2,7 +2,8 @@
 title: House of Apple
 date: 2023-12-04 23:13:54
 tags:
-  - ["pwn", "fsop"]
+    - pwn
+    - fsop
 ---
 
 Original article: <https://www.roderickchan.cn/zh-cn/house-of-apple-一种新的glibc中io攻击方法-1/>
