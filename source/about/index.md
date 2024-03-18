@@ -2,6 +2,10 @@
 title: about
 date: 2023-11-28 13:22:47
 ctfs:
+  - name: Lag and Crash 4.0
+    date: 2024-03-13
+    rank: 1st place
+
   - name: TISC
     date: 2023-10-01
     rank: Level 8 (14th place)
