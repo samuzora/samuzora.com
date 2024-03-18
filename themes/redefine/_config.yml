@@ -265,12 +265,12 @@ articles:
     link_icon: true # Whether to display link icon
     title_alignment: left # Title alignment. left, center
     headings_top_spacing: # Top spacing for headings from h1-h6
-      h1: 5rem
-      h2: 4rem
-      h3: 2.8rem
-      h4: 2.5rem
-      h5: 2.2rem
-      h6: 2rem
+      h1: 2.5rem
+      h2: 2.0rem
+      h3: 1.5rem
+      h4: 1.0rem
+      h5: 0.5rem
+      h6: 0.3rem
   # Word count. Requires hexo-wordcount (npm install hexo-wordcount). See https://github.com/willin/hexo-wordcount
   word_count:
     enable: true # Whether to enable
