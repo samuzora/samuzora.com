@@ -1,7 +1,7 @@
 # - links_category: Normal
 #   has_thumbnail: 
 - links_category: Friends
-  has_thumbnail: true
+  has_thumbnail: false
   list:
     - name: beanbeah
       link: https://github.com/beanbeah/
