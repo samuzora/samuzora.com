@@ -180,7 +180,7 @@ navbar:
       icon: fa-regular fa-user
       submenus:
         Me: /about
-        Source: https://github.com/samuzora/samuzora.github.io/
+        Source: https://github.com/samuzora/blog
     # Links: 
     #   icon: fa-regular fa-link
     #   submenus:
