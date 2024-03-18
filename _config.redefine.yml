@@ -181,7 +181,7 @@ navbar:
     #   icon: fa-regular fa-chart-bar
     Others: 
       submenus:
-        Friends: /friends
+        Friends: /links
         Source: https://github.com/samuzora/blog
     # Links: 
     #   icon: fa-regular fa-link
