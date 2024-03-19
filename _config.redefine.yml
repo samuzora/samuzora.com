@@ -35,6 +35,7 @@ colors:
   primary: "#1c976a"
   # Secondary color (tbd)
   secondary: ""
+  default_mode: dark
 # COLORS <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< end
 
 
@@ -59,20 +60,22 @@ global:
   # Effects on mouse hover
   hover:
     shadow: true # shadow effect
-    scale: scale # scale effect
+    scale: false # scale effect
   # Scroll progress
   scroll_progress:
     bar: false # progress bar
     percentage: true # percentage
   # Website counter
   website_counter:
-    url: https://busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js # counter API URL (no need to change)
+    url: https://cn.vercount.one/js # counter API URL (no need to change)
     enable: true # enable website counter or not
     site_pv: false # site page view
     site_uv: false # site unique visitor
     post_pv: true # post page view
   # Whether to enable single page experience (using swup). See https://swup.js.org/. similar to pjax
   single_page: true
+  # Whether to enable Preloader.
+  preloader: true
   # Whether to enable open graph
   open_graph: true
   # Google Analytics
@@ -174,6 +177,10 @@ navbar:
     left: "#9c8bea"  #right side
     right: "#f78736" #left side
     transparency: 35 #percent (10-99)
+  # Navbar width (usually no need to modify)
+  width:
+    home: 1200px #home page
+    pages: 1000px #other pages
   # Navbar links
   links:
     Home: 
@@ -217,6 +224,7 @@ home:
     first_item: menu # First item in sidebar. menu, info
     announcement: |
       playing ctfs since 2021
+    show_on_mobile: false
     links:
       # Archives: 
       #   path: /archives 
@@ -229,7 +237,7 @@ home:
       #   icon: fa-regular fa-folder # can be empty
       # ...... # you can add more
   # Article date format
-  article_date_format: auto # auto, relative, YYYY-MM-DD, YYYY-MM-DD HH:mm:ss etc.
+  article_date_format: YYYY-MM-DD # auto, relative, YYYY-MM-DD, YYYY-MM-DD HH:mm:ss etc.
   # Article categories visibility
   categories:
     enable: true  # Whether to enable
@@ -245,12 +253,12 @@ home:
 articles:
   # Set the styles of the article
   style:
-    font_size: 16px # Font size
+    font_size: 15px # Font size
     line_height: 1.5 # Line height
     image_border_radius: 14px # image border radius
     image_alignment: center # image alignment. left, center
     image_caption: false # Whether to display image caption
-    link_icon: true # Whether to display link icon
+    link_icon: false # Whether to display link icon
     title_alignment: left # Title alignment. left, center
     headings_top_spacing: # Top spacing for headings from h1-h6
       h1: 2.5rem
@@ -351,9 +359,10 @@ footer:
   # Show website running time
   runtime: false # show website running time or not
   # Icon in footer, write fontawesome icon code here
-  icon: '<i class="fa-solid fa-heart fa-beat" style="--fa-animation-duration: 0.5s; color: #f54545"></i>'
+  # icon: '<i class="fa-solid fa-heart fa-beat" style="--fa-animation-duration: 0.5s; color: #f54545"></i>'
   # The start time of the website, format: YYYY/MM/DD HH:mm:ss
   start: 2022/08/17 11:45:14
+  statistics: false
   # Footer message
   customize:
   # ICP record number. See https://beian.miit.gov.cn/
