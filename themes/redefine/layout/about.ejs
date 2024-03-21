@@ -4,7 +4,7 @@
 
 <h1 class="text-3xl font-bold mb-4">CTF timeline</h1>
 
-<% let ctfs = page.ctfs.sort((a, b) => b.date - a.date).map(ctf => ({ name: ctf.name, date: ctf.date, rank: ctf.rank, url: ctf.url, year: date(ctf.date, 'YYYY') })) %>
+<% let ctfs = site.data.ctfs.sort((a, b) => b.date - a.date).map(ctf => ({ name: ctf.name, date: ctf.date, rank: ctf.rank, url: ctf.url, year: date(ctf.date, 'YYYY') })) %>
 <% let ctfsByYear = ctfs.reduce((acc, ctf) => { %>
     <% if (acc.hasOwnProperty(ctf.year)) { %>
         <% acc[ctf.year].push(ctf) %>

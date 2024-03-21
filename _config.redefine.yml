@@ -122,7 +122,7 @@ home_banner:
       - x/50gx 0xfff8881012996000
       - nvim solve.py
       - p.interactive()
-      - \' or 1=1 -- 
+      - "' or 1=1 -- "
       - b'\xd0\x9e\xdb\xf7\xff\x7f\x00\x00'
     hitokoto:  # 一言配置
       enable: false # Whether to enable hitokoto
