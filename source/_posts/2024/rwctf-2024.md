@@ -453,4 +453,4 @@ restrictions :)
 Flag: `rwctf{b2ed2442-b9e0-11ee-a668-00163e01b905}`
 
 Anyway, this was a good intro back to CTFs after I stopped for so long. I
-should probably play more (DiceCTF Quals coming soon :O)
+should probably play more.

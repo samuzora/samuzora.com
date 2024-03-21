@@ -116,12 +116,8 @@ other FILE features to get RCE?
 
 The next few posts will be my notes while exploring some previously discovered houses.
 
-- [House of Apple](/posts/fsop/house-of-apple)
-
-# House of Kiwi
-
-# House of Banana
-
-# House of Emma
-
-# House of Pig
+- {% post_link "fsop/house-of-apple" %}
+- House of Kiwi
+- House of Banana
+- House of Emma
+- House of Pig
