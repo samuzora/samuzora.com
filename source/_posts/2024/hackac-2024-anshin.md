@@ -9,7 +9,7 @@ tags:
 ---
 
 Source and relevant files can be [found
-here](https://github.com/Coding-Competition-Team/hackac-2024/tree/main/pwn/anshin>)
+here](https://github.com/Coding-Competition-Team/hackac-2024/tree/main/pwn/anshin)
 
 Libc version: 2.35
 
