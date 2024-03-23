@@ -254,6 +254,7 @@ articles:
   # Set the styles of the article
   style:
     font_size: 15px # Font size
+    code_size: 12px # Code font size
     line_height: 1.5 # Line height
     image_border_radius: 14px # image border radius
     image_alignment: center # image alignment. left, center

@@ -11,6 +11,7 @@ $code-block
   background var(--highlight-background)
 
 pre, code
+  font-size convert(hexo-config('articles.style.code_size'))
   if (hexo-config('articles.code_block.font.enable') && hexo-config('articles.code_block.font.family'))
     font-family hexo-config('articles.code_block.font.family'), 'Ubuntu Mono', Courier, monospace !important
   else
