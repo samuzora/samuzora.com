@@ -1,7 +1,6 @@
 ---
 title: Sus Machine
 date: 2023-01-14 17:42
-updated: 2023-01-14 17:42
 categories:
     - writeups
 tags:

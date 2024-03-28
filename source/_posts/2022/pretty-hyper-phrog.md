@@ -1,7 +1,6 @@
 ---
 title: Pretty Hyper Phrog (Cyberleague Quarterfinals 2022)
 date: 2022-12-23 15:03
-updated: 2022-12-23 15:03
 categories:
     - authored
 tags:

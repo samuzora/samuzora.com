@@ -1,7 +1,6 @@
 ---
 title: House of Apple
 date: 2023-12-05 23:13
-updated: 2023-12-05 23:13
 tags:
     - pwn
     - fsop

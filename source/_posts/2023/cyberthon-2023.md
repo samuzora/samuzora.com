@@ -1,7 +1,6 @@
 ---
 title: Cyberthon 2023 Writeups
 date: 2023-05-11 16:10
-updated: 2023-05-11 16:10
 categories:
   - writeups
 tags:

@@ -1,9 +1,8 @@
 ---
 title: HACK@AC 2024 - 安心 Impact!
 date: 2024-03-23 18:05:38
-updated: 2024-03-23 18:05:38
 categories:
-    - writeups
+    - authored
 tags:
     - pwn
 ---
