@@ -19,7 +19,7 @@ Etymology of samuzora: 寒空 in Japanese (is super cringe 🫠)
 
 ### ctfs
 
-I main pwn and web with decent experience in both, but always looking to laern more 😃 Also learning smart contract, and
+I main pwn and web with decent experience in both, but always looking to learn more 😃 Also learning smart contract, and
 can do a bit of RE and misc. but will never touch crypto or forens
 
 I'm also a member of <https://wrecktheline.com> with so many amazing and super teammates to learn from ❤️
