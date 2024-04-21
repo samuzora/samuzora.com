@@ -36,11 +36,11 @@
                     <span class="ctf-title"><%= ctf.name %></span>
                   <% } %>
                   <% if (ctf.rank) { %>
-                    <% if (ctf.rank === "1st place") { %>
+                    <% if (ctf.rank.includes("1st")) { %>
                       <div class="ctf-placing ctf-placing-1st"><%= ctf.rank %></div>
-                    <% } else if (ctf.rank === "2nd place") { %>
+                    <% } else if (ctf.rank.includes("2nd")) { %>
                         <div class="ctf-placing ctf-placing-2nd"><%= ctf.rank %></div>
-                    <% } else if (ctf.rank === "3rd place") { %>
+                    <% } else if (ctf.rank.includes("3rd")) { %>
                         <div class="ctf-placing ctf-placing-3rd"><%= ctf.rank %></div>
                     <% } else { %>
                         <div class="ctf-placing"><%= ctf.rank %></div>
