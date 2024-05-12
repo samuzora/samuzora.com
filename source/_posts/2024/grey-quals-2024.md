@@ -1,7 +1,7 @@
 ---
 title: Grey Cat the Flag Qualifers 2024
 date: 2024-05-12 03:17:55
-updated: 2024-05-12 03:17:55
+excerpt: Grey Quals 2024 - Baby Fmtstr, The Motorola 2
 categories:
     - writeups
 tags:

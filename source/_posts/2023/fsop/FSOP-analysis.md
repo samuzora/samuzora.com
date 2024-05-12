@@ -1,6 +1,7 @@
 ---
 title: Analysis of FSOP techniques
 date: 2023-12-04 22:54
+excerpt: Analysis of FSOP techniques
 tags:
   - pwn
   - fsop

@@ -1,6 +1,7 @@
 ---
 title: House of Apple
 date: 2023-12-05 23:13
+excerpt: "Analysis of FSOP techniques: House of Apple"
 tags:
     - pwn
     - fsop
