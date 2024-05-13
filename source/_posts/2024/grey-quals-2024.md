@@ -9,7 +9,11 @@ tags:
 ---
 
 Grey CTF Quals 2024 took place on 27 April. I played with slight_smile and got 3rd place locally, qualifying for the
-finals! Here are my writeups for 2 of the interesting pwn challenges.
+finals! I solved all the pwn except for heapheapheap, which is too painpainpain to do :((
+
+![Scoreboard](/images/posts/grey-quals-2024/scoreboard.png)
+
+Here are my writeups for some of the interesting pwn challenges.
 
 ## Baby Fmtstr
 
@@ -135,7 +139,7 @@ aa_DJ             ca_FR             es_BO.utf8        gu_IN             mr_IN   
 
 (there are over 500 so I'm not putting all here)
 
-Then taking these locales, I looped through a few different format specifers to see if `sh` appears in the output.
+Then taking these locales, I looped through a few different format specifiers to see if `sh` appears in the output.
 
 ```python
 timestr = b"%a" # %b etc
@@ -211,7 +215,7 @@ p.interactive()
 
 Unfortunately, at the point of making this writeup, it is no longer April and my exploit doesn't work anymore :(
 
-(so the entire reason for moving grey is so this chall is solvable)
+(also the entire reason for moving grey is so that this chall would be solvable)
 
 ![lol](/images/posts/grey-quals-2024/exploit-april.png)
 
@@ -309,7 +313,7 @@ When a call is made from a parent function, the instruction is simply `call $slo
 for instruction pointers to continue execution after `call` and `call_indirect`. This stack lives outside the runtime
 VM, so it's generally not possible to hijack it. The arguments to the function are pushed onto the top of the stack, and
 these arguments become the `locals` array which can be accessed within the function (eg. `local.get 14` will get the
-15th argument on the stack). When the function is finished, the return value(s) are pushed onto the stack and the parent
+15th value on the stack). When the function is finished, the return value(s) are pushed onto the stack and the parent
 function continues execution based on the call stack.
 
 Here's a demo, breaking on the `slow_type` function:
@@ -330,7 +334,7 @@ pwndbg> stack
 +068 0x7fffffffbb88 —▸ 0x7ffff5bd70b1 ◂— mov rbx, rax
 ```
 
-The value pointed to by `rsp` (rsp of VM, not the sandboxed process!) belongs, if we check the disassembly, to the
+The value pointed to by `rsp` (`rsp` of VM, not the sandboxed process!) belongs, if we check the disassembly, to the
 `login` function. 
 
 ```
@@ -384,7 +388,7 @@ What about `call_indirect`? It takes a function index from the stack, accesses t
 function with the corresponding index. The main purpose is to maintain compatibility with C native functions (eg.
 `fclose` which reads the close function for the target file from the FILE struct, which can only be known at runtime).
 Since the arguments must be passed in through the stack, and can be known at compile time, wasm is smart about this and
-reuqires the function signature in `call_indirect`. For example:
+requires the function signature in `call_indirect`. For example:
 
 ```wasm
 ...
