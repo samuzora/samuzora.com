@@ -1,5 +1,3 @@
-# - links_category: Normal
-#   has_thumbnail: 
 - links_category: Friends
   has_thumbnail: false
   list:
@@ -16,7 +14,7 @@
       link: https://fineas.github.io/FeDEX/
       avatar: https://avatars.githubusercontent.com/u/9286000?v=4
     - name: Elma
-      link: https://blog.caprinux.com/
+      link: https://blog.elmo.sg/
       avatar: https://avatars.githubusercontent.com/u/76640319?v=4
     - name: enxgmatic
       link: https://enxgmatic.github.io/
