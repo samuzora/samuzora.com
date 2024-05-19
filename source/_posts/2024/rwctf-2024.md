@@ -3,7 +3,7 @@ title: Real World CTF 2024 - Chatterbox
 date: 2024-01-28 13:53
 excerpt: RWCTF 2024 - Chatterbox
 categories:
-    - writeups
+    - Writeups
 tags:
     - web
 ---

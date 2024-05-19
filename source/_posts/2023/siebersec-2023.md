@@ -3,7 +3,7 @@ title: Sus Machine
 date: 2023-01-14 17:42
 excerpt: Sieberrsec 4.0 - Sus Machine
 categories:
-    - writeups
+    - Writeups
 tags:
     - pwn
 ---
