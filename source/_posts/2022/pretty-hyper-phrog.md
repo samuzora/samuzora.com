@@ -1,9 +1,9 @@
 ---
-title: Pretty Hyper Phrog (Cyberleague Quarterfinals 2022)
+title: Cyberleague Quarterfinals 2022 - Pretty Hyper Phrog
 date: 2022-12-23 15:03
-excerpt: Cyberleague Quarterfinals 2022 - Pretty Hyper Phrog
+excerpt: Pretty Hyper Phrog writeup - PHP deserialization to LFI + RCE
 categories:
-    - Authored Challenges
+    - Authored challenges
 tags:
     - web
 ---
