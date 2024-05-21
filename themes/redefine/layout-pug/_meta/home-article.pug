@@ -1,0 +1,52 @@
+.home-article-meta-info-container
+  .home-article-meta-info
+    span
+      i(class="fa-solid fa-calendars")
+      != "&nbsp;"
+      span.home-article-date(data-date=post.date)
+        if theme.home.article_date-format == "auto" || theme.home.article_date_format == "relative"
+          != date(post.date, config.date_format)
+        else
+          != date(post.date, theme.home.article_date_format)
+
+    if post.categories.length && theme.home.categories.enable
+      span.home-article-category
+        i(class="fa-solid fa-folders")
+        != "&nbsp;"
+        ul
+          - let previousParentId = null
+          each category in post.categories.data
+            if previousParentId !== category.parent
+              if previousParentId !== null
+                li >
+              li
+                a(href=url_for(category.path)) #{category.name}
+                != "&nbsp;"
+            else
+              li
+                = "| "
+                a(href=url_for(category.path)) #{category.name}
+                != "&nbsp;"
+            - previousParentId = category.parent
+
+    if post.tags.length && theme.home.tags.enable
+      span.home-article-tag
+        i(class="fa-solid fa-tags")
+        != "&nbsp;"
+        ul
+          - let counter = 0
+          each tag in post.tags.data
+            if counter < theme.home.tags.limit
+              li
+                if counter > 0
+                  = "| "
+                a(href=url_for(tag.path)) 
+                  = tag.name
+                  != "&nbsp;"
+            - counter++
+
+  a(href=url_for(post.path))
+    != __("read_more")
+    span(class="seo-reader-text") #{post.title}
+    != "&nbsp;"
+    i(class="fa-solid fa-angle-right")

@@ -1,0 +1,21 @@
+- 
+  const postList = createNewArchivePosts(site.posts)
+  let cachedDate = null
+
+.archive-list-container
+  each year in postList
+    section.archive-item(class="mb-spacing-unit last:mb-0")
+      .archive-item-header(class="flex flex-row items-center mb-2")
+        span.archive-year(class="font-semibold text-3xl mr-2") #{year.year}
+        span.archive-year-post-count(
+        class="text-xs md:text-sm font-bold rounded-small bg-third-background-color py-[2px] px-[10px] border border-border-color"
+        ) #{year.postList.length}
+      ul.article-list(class="pl-0 md:pl-8 text-lg leading-[1.5]")
+        - let posts = Object.groupBy(year.postList, ({ date }) => date(post.date, "MM-DD"))
+        each cachedDate, post in posts
+          li.article-item(
+            class="space-y-2 px-6 pt-10 pb-2 text-xl relative border-l-2 border-border-color"
+            date-is=cachedDate
+          )
+            a(class="block overflow-hidden w-fit" href=url_for(post.path))
+              span.article-title(class="mb-0.5 text-2xl") #{post.title}

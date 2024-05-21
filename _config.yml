@@ -109,3 +109,6 @@ theme: redefine
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
   type: ''
+
+image_minifier:
+  enable: false

@@ -1,0 +1,5 @@
+.author(class="flex flex-col justify-center my-2.5 mx-0")
+  .name #{theme.info.author || config.author}
+  if theme.articles && theme.articles.author_label.enable
+    .label 
+      != getAuthorLabel(site.posts.length, theme.articles.author_label.auto, theme.articles.author_label.list)

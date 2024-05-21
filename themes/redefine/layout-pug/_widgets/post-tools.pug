@@ -1,0 +1,9 @@
+.post-tools-container
+  ul.article-tools-list
+    if theme.articles.toc.enable
+      li.right-bottom-tools.page-aside-toggle
+        i(class="fa-regular fa-outdent")
+
+    if theme.comment.enable && theme.comment.system && page.comment
+      li.go-comment
+        i(class="fa-regular fa-comments")

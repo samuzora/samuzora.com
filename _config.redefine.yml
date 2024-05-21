@@ -164,7 +164,8 @@ home_banner:
       twitter: https://twitter.com/_samuzora
       email: lucastanyj@gmail.com
       linkedin: https://www.linkedin.com/in/lucas-tan-yi-jie-591290188/
-      # ...... # you can add more
+      discord: https://discord.com/users/638306658858172416
+    qrs:
 # HOME BANNER <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< end
 
 
@@ -183,7 +184,7 @@ navbar:
     pages: 1000px #other pages
   # Navbar links
   links:
-    Home: 
+    Home:
       path: / 
       icon: fa-regular fa-house # can be empty
     About:
@@ -192,9 +193,12 @@ navbar:
     Posts: 
       path: /archives 
       icon: fa-regular fa-archive # can be empty
-    # Status: 
-    #   path: https://status.evanluo.top/
-    #   icon: fa-regular fa-chart-bar
+    Categories:
+      path: /categories
+      icon: fa-regular fa-folder
+    Tags:
+      path: /tags
+      icon: fa-regular fa-tag
     Others: 
       submenus:
         Friends: /links
@@ -420,7 +424,7 @@ page_templates:
   # Friend Links page column number
   friends_column: 2
   # Tags page style
-  tags_style: blur # blur, cloud
+  tags_style: none # blur, cloud, none
 # PAGE TEMPLATES <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< end
 
 
