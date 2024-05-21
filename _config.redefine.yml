@@ -191,18 +191,17 @@ navbar:
       path: /about
       icon: fa-regular fa-user
     Posts: 
-      path: /archives 
-      icon: fa-regular fa-archive # can be empty
-    Categories:
-      path: /categories
       icon: fa-regular fa-folder
-    Tags:
-      path: /tags
-      icon: fa-regular fa-tag
-    Others: 
       submenus:
-        Friends: /links
-        Source: https://github.com/samuzora/blog
+        All: /archives
+        "By category": /categories
+        "By tag": /tags
+    Friends: 
+      icon: fa-regular fa-user-friends
+      path: /links
+    Source: 
+      icon: fa-regular fa-code-branch
+      path: https://github.com/samuzora/blog
     # Links: 
     #   icon: fa-regular fa-link
     #   submenus:
