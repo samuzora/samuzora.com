@@ -1593,6 +1593,13 @@ hexo-cli@^4.3.0:
     resolve "^1.20.0"
     tildify "^2.0.0"
 
+hexo-custom-fields@^1.1.1:
+  version "1.1.1"
+  resolved "https://registry.npmjs.org/hexo-custom-fields/-/hexo-custom-fields-1.1.1.tgz"
+  integrity sha512-VPge0l9YL0LYK96B1zFBEqYGlHRSfUCORm6SUNqYIqUHrhGHKgwSpLHeuJVPJZsWDzvZJVZXnKZgCLTzoM/DMQ==
+  dependencies:
+    lodash "^4.17.4"
+
 hexo-front-matter@^4.2.1:
   version "4.2.1"
   resolved "https://registry.npmjs.org/hexo-front-matter/-/hexo-front-matter-4.2.1.tgz"
@@ -2314,6 +2321,11 @@ load-json-file@^1.0.0:
     pify "^2.0.0"
     pinkie-promise "^2.0.0"
     strip-bom "^2.0.0"
+
+lodash@^4.17.4:
+  version "4.17.21"
+  resolved "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz"
+  integrity sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==
 
 logalot@^2.0.0:
   version "2.1.0"

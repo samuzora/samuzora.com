@@ -32,7 +32,7 @@ defaults:
 # COLORS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> start
 colors:
   #Primary color
-  primary: "#1c976a"
+  primary: "#86799a"
   # Secondary color (tbd)
   secondary: ""
   default_mode: dark
@@ -106,7 +106,7 @@ home_banner:
   style: fixed # static or fixed
   # Home banner image
   image: 
-    light: /images/bg-light.png # light mode
+    light: /images/bg-light.jpg # light mode
     dark: /images/bg-dark.png # dark mode
   # Home banner title
   title: samuzora's blog
@@ -187,18 +187,15 @@ navbar:
     Home:
       path: / 
       icon: fa-regular fa-house # can be empty
-    About:
-      path: /about
-      icon: fa-regular fa-user
+    Friends: 
+      icon: fa-regular fa-user-friends
+      path: /links
     Posts: 
       icon: fa-regular fa-folder
       submenus:
         All: /archives
         "By category": /categories
         "By tag": /tags
-    Friends: 
-      icon: fa-regular fa-user-friends
-      path: /links
     Source: 
       icon: fa-regular fa-code-branch
       path: https://github.com/samuzora/blog

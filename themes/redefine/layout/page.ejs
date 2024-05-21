@@ -3,7 +3,7 @@
 
     <% if (theme.home_banner.enable === true && is_home() && !page.prev) { %>
         <%- partial('_partials/home-banner') %>
-    <% } else if (theme.home_banner.enable === true && is_home() && page.prev && theme.home_banner.style === "fixed") { %>
+    <% } else if (theme.home_banner.enable === true && theme.home_banner.style === "fixed") { %>
         <%- partial('_partials/home-background') %>
     <% } %>
 
@@ -30,9 +30,6 @@
 
                 <% } else if (is_post()) { %>
                     <%- partial('article-content') %>
-
-                <% } else if (page.title === "about") { %>
-                    <%- partial('about') %>
 
                 <% } else if (is_category()) { %>
                     <%- partial('category-content') %>

@@ -25,6 +25,7 @@ I'm also a member of <https://wrecktheline.com> with many amazing and super team
 ### other stuff
 
 When I'm not busy solving challenges, I like to do a bit of web dev. I'm quite familiar with Next.js and Prisma stack.
-(but my frontend is super ugly)
+(but my frontend is super ugly) Also a huge fan of neovim (my dotfiles are
+[here](https://github.com/samuzora/dotfiles)!)
 
-Also a huge fan of neovim (my dotfiles are [here](https://github.com/samuzora/dotfiles)!)
+Hope you enjoy my blog!
