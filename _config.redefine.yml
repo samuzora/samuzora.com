@@ -196,9 +196,6 @@ navbar:
         All: /archives
         "By category": /categories
         "By tag": /tags
-    Source: 
-      icon: fa-regular fa-code-branch
-      path: https://github.com/samuzora/blog
     # Links: 
     #   icon: fa-regular fa-link
     #   submenus:

@@ -11,36 +11,45 @@ $article-date-font-size = 1rem
   color var(--default-text-color)
 
 .ctf-list-container
-  .ctf
+  .ctf-list-item
     margin-bottom $spacing-unit
+    user-select none
 
     &:last-child
       margin-bottom 0
 
-    .ctf-header
+    &[open]
+      summary
+        background-color var(--background-color)
 
-      .ctf-year
-        font-size $archive-year-font-size
+    summary
+      background-color var(--background-color-transparent-80)
 
-        +redefine-tablet()
-          font-size: $archive-year-font-size - 0.2rem
+      .ctf-header
+        .ctf-year
+          font-size $archive-year-font-size
 
-        color var(--second-text-color)
-        font-weight 600
-        margin-right 6px
+          +redefine-tablet()
+            font-size: $archive-year-font-size - 0.2rem
 
-      .ctf-year-count
-        font-size $archive-year-count-font-size
-        font-weight 500
-        color var(--second-text-color)
+          color var(--second-text-color)
+          font-weight 600
+          margin-right 6px
 
-        +redefine-tablet()
-          font-size: $archive-year-count-font-size * 0.9
+        .ctf-year-count
+          font-size $archive-year-count-font-size
+          font-weight 500
+          color var(--second-text-color)
 
-    .ctf-list
+          +redefine-tablet()
+            font-size: $archive-year-count-font-size * 0.9
+
+    .inner-ctf-list
       padding-left 30px
       font-size 14px
       line-height 1.5
+      background-color var(--background-color-transparent-80)
+      border-radius 4px
 
       +redefine-tablet()
         padding-left 0
@@ -55,7 +64,7 @@ $article-date-font-size = 1rem
         &::hover
           color var(--primary-color)
 
-      .ctf-item
+      .inner-ctf-item
         font-size 1rem
         padding 3em 2em 1em
         position relative
@@ -90,15 +99,14 @@ $article-date-font-size = 1rem
           border-image var(--archive-timeline-last-child-color)
 
       .ctf-placing
-        font-size 1rem
-        margin-bottom 0.5em
+        font-size 1rem margin-bottom 0.5em
         color var(--default-text-color)
 
-      .ctf-placing-1st
+      .ctf-first-placing
         color gold
 
-      .ctf-placing-2nd
+      .ctf-second-placing
         color antiquewhite
 
-      .ctf-placing-third
+      .ctf-third-placing
         color chocolate

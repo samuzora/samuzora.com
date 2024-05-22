@@ -3,7 +3,7 @@ title: about
 date: 2023-11-28
 ---
 
-## whoami
+# whoami
 
 I'm Lucas Tan, a Singaporean JC2 student at Anglo-Chinese School (Independent) (ACSI) and chairman of ACSI
 Coding Competition Team (CCT) from 2022 to 2024.
@@ -15,17 +15,19 @@ Besides playing, I've also organized and hosted 3 iterations of HACK@AC from 202
 other CTFs, including [HackTM 2023](https://ctftime.org/event/1848), [Cyberleague 2022
 Quarterfinals](https://cyberleague.co/), and other smaller local CTFs like BlahajCTF, Sieberrsec, Whitehacks and more.
 
-### ctfs
+## ctfs
 
 I main pwn and web with decent experience in both, but always looking to learn more! I'm also learning smart contract,
-and can do a bit of RE and misc. But I'll never touch crypto or forens
+and can do a bit of RE and misc. But I'll never touch crypto or forens.
 
-I'm also a member of <https://wrecktheline.com> with many amazing and super teammates to learn from ❤️
+I'm also a member of <https://wrecktheline.com> with many amazing and super teammates to learn from. ❤️
 
-### other stuff
+## other stuff
 
-When I'm not busy solving challenges, I like to do a bit of web dev. I'm quite familiar with Next.js and Prisma stack.
-(but my frontend is super ugly) Also a huge fan of neovim (my dotfiles are
-[here](https://github.com/samuzora/dotfiles)!)
+When I'm not busy solving challenges, I like to do web dev. I'm quite familiar with Next.js and Prisma.
+
+Huge fan of the Three-Body Problem (book series)
+
+I use neovim btw ([dotfiles here](https://github.com/samuzora/dotfiles))
 
 Hope you enjoy my blog!

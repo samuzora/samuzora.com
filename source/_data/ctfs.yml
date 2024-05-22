@@ -1,19 +1,23 @@
 - name: Cyberthon
   date: 2024-05-04
   rank: 3rd place
+  class: ctf-third-placing
 
 - name: ACSC
   date: 2024-03-30
   rank: 2nd place SG (30th Global/Asia)
+  class: ctf-second-placing
 
 - name: Lag and Crash 4.0
   date: 2024-03-13
   rank: 1st place
+  class: ctf-first-placing
 
 - name: TISC
   date: 2023-10-01
   rank: Level 8/10 (14th place)
   url: https://www.csit.gov.sg/events/tisc/tisc-2023
+  class: ctf-third-placing
 
 - name: Codegate Junior
   date: 2023-08-24
@@ -24,10 +28,12 @@
   date: 2023-04-29
   rank: 2nd place
   url: https://www.hci.edu.sg/news/cyberthon-2023
+  class: ctf-second-placing
 
 - name: AYCEP
   date: 2023-07-06
   rank: 3rd place
+  class: ctf-third-placing
 
 - name: CDDC
   date: 2023-06-22
@@ -41,10 +47,12 @@
 - name: Sieberrsec
   date: 2023-01-07
   rank: 1st place
+  class: ctf-first-placing
 
 - name: Sieberrsec
   date: 2021-12-27
   rank: 3rd place
+  class: ctf-third-placing
 
 - name: Codegate Junior
   date: 2022-11-07
@@ -54,15 +62,18 @@
   date: 2022-10-31
   rank: 2nd place
   url: https://ctftime.org/event/1738
+  class: ctf-second-placing
 
 - name: YCEP
   date: 2022-06-23
   rank: 1st place
+  class: ctf-first-placing
 
 - name: Winja x Nullcon
   date: 2022-04-09
   rank: 3rd place
   url: https://ctftime.org/event/1603
+  class: ctf-third-placing
 
 - name: Imperial CTF
   date: 2022-04-03
@@ -83,3 +94,4 @@
   date: 2021-12-16
   rank: 1st place
   url: https://ctftime.org/event/1490
+  class: ctf-first-placing
