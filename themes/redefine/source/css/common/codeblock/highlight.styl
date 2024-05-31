@@ -28,7 +28,7 @@ code
   padding 4px
   word-wrap break-word
   border-radius $redefine-border-radius-xsmall
-  font-size 0.96em
+  font-size 0.85em !important
   color var(--code-foreground)
   background var(--code-background)
 
@@ -49,6 +49,8 @@ pre
   padding-bottom 5px
   overflow auto
   margin 0 !important
+  font-size 12px
+  line-height 1.2em
 
   if (hexo-config('articles.code_block.style') == 'mac')
     border-top 1px solid var(--shadow-color-1)

@@ -19,9 +19,9 @@
                   <span class="ctf-year-count">[<%= ctfsByYear[year].length %>]</span>
               </div>
             </summary>
-            <ul class="inner-ctf-list">
+            <ul class="inner-ctf-list pb-2">
               <% ctfsByYear[year].map(ctf => { %>
-                <li class="inner-ctf-item mx-2" date-is='<%= date(ctf.date, 'MM-DD') %>'>
+                <li class="inner-ctf-item mx-4" date-is='<%= date(ctf.date, 'MM-DD') %>'>
                   <% if (ctf.url) { %>
                     <a href="<%= ctf.url %>" class="ctf-title">
                       <%= ctf.name %>
@@ -30,7 +30,6 @@
                   <% } else { %>
                     <span class="ctf-title"><%= ctf.name %></span>
                   <% } %>
-                  <%- console.log(ctf) %>
                   <div class="ctf-placing <%= ctf.class %>"><%= ctf.rank %></div>
                 </li>
               <% }) %>

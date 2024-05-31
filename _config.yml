@@ -47,14 +47,16 @@ relative_link: false
 future: false
 syntax_highlighter: highlight.js
 highlight:
-  line_number: true
+  line_number: false
   auto_detect: false
+  line_threshold: 0
   tab_replace: ''
   wrap: true
   hljs: false
 prismjs:
   preprocess: true
-  line_number: true
+  line_number: false
+  line_threshold: 0
   tab_replace: ''
 
 # Home page setting
