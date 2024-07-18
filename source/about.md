@@ -18,16 +18,6 @@ Quarterfinals](https://cyberleague.co/), and other smaller local CTFs like Blaha
 ## ctfs
 
 I main pwn and web with decent experience in both, but always looking to learn more! I'm also learning smart contract,
-and can do a bit of RE and misc. But I'll never touch crypto or forens.
+and can do a bit of RE and misc. But I'll never touch crypto or forens. I'm currently learning kernel pwn and v8 :)
 
-I'm also a member of <https://wrecktheline.com> with many amazing and super teammates to learn from. ❤️
-
-## other stuff
-
-When I'm not busy solving challenges, I like to do web dev. I'm quite familiar with Next.js and Prisma.
-
-Huge fan of the Three-Body Problem (book series)
-
-I use neovim btw ([dotfiles here](https://github.com/samuzora/dotfiles))
-
-Hope you enjoy my blog!
+I'm also a member of <https://wrecktheline.com> with many amazing and pro teammates to learn from.
