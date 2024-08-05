@@ -2,6 +2,7 @@
   desc: RCE in Pug <=3.0.2
   link: https://nvd.nist.gov/vuln/detail/CVE-2024-36361
   post: /posts/cve-2024-36361
-# - id: CVE-2024-40453
-#   desc: RCE in Squirrelly <=9.0.0
-#   post: /posts/cve-2024-40453
+
+- id: CVE-2024-40453
+  desc: RCE in Squirrelly <=9.0.0
+  post: /posts/cve-2024-40453
