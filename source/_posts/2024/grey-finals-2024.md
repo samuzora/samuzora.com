@@ -18,12 +18,11 @@ The challenge archive can be found at <https://github.com/NUSGreyhats/greyctf24-
 
 > Everyone rekt the Blob Runner so hard in Greyhats Welcome CTF 2023, I made sure to make it extra secure this time ;)
 >
-> Author: Elma
->
+> Author: Elma \
 > Solves: 4
 
-The challenge reads shellcode into an mmaped region at `0x1337000`, removes write perms on this region. Before jumping
-to the shellcode, it runs the shellcode through a blacklist:
+The challenge reads shellcode into an mmaped region at `0x1337000`, and then removes write perms on this region. Before
+jumping to the shellcode, it runs the shellcode through a blacklist:
 
 ```c
 	for (int i = 0; i < 0x1000; i += 1) {
@@ -35,9 +34,8 @@ to the shellcode, it runs the shellcode through a blacklist:
 
 which is meant to block `syscall` and `int 0x80`. 
 
-Actually, the comparison for `int 0x80` doesn't work since `char` is
-signed but the comparison is unsigned. I tried this for a while but soon realized that the following seccomp not only
-specifies syscall type, but also architecture (`x64`):
+Actually, the comparison for `int 0x80` doesn't work since `char` is signed but the comparison is unsigned. I tried this
+for a while but soon realized that the following seccomp not only specifies syscall type, but also architecture (`x64`):
 
 ```c
 	// install seccomp filters as extra security!!
@@ -57,7 +55,11 @@ specifies syscall type, but also architecture (`x64`):
 
 So it blocks `int 0x80` as well :(
 
-It then jumps to the shellcode after executing the following:
+The organizers also took a pic of me thinking I was very smart and showing the "unintended" to Elma :(
+
+<img src="/images/posts/grey-finals-2024/unintended.jpg" width="60%" alt="nice unintended"/>
+
+Anyway, after the seccomp, it then jumps to the shellcode after executing the following:
 
 ```c
 void call_shellcode(char* code) {
@@ -85,7 +87,6 @@ void call_shellcode(char* code) {
         );
 
 }
-
 ```
 
 All registers are set to 0, presumably to prevent libc or pie leaks. But if we run it in gdb, we actually see the
@@ -126,7 +127,7 @@ which stores certain important values like canary or the key for `PTR_MANGLE`.
 
 To get this value in our shellcode, we can simply `mov $register, fs_base` and manipulate it from there.
 
-With a libc leak, we can then call `syscall` gadgets. The rest is trivial!
+With a libc leak, we can then call `syscall` gadgets. The rest is trivial.
 
 ```asm
 mov    r8,QWORD PTR fs:0x0
@@ -192,8 +193,7 @@ p.interactive() # grey{ret_to_thread_local_storage_via_fs_register}
 > Writing challenges are too hard... so I wrote a program in 2 lines of code for you to pwn :/ I can even tell you that
 > there is an obvious buffer overflow there, should be simple right?
 >
-> Author: Elma
->
+> Author: Elma \
 > Solves: 2
 
 The challenge source is literally 2 lines long:
@@ -222,16 +222,9 @@ fake resolve libc functions (I don't think ret2dlresolve is possible on full REL
 
 ## ret2dlresolve
 
-ret2dlresolve involves exploiting the linker logic to resolve arbitrary libc functions for us, with no libc leak at all.
-This hinges on 
-
 In ret2dlresolve, we need to fake 3 structs: `STRTAB`, `SYMTAB`, and `JMPREL`. These 3 structs are placed at an offset
-from the corresponding section headers, and they are identified through indexes from the start of the section. We hence
-need to know where we're putting these structs in memory. Once we've faked all the structs, we need to call
-`_dl_runtime_resolve_xsavec` with the index of our fake `JMPREL` struct, which will trigger the loading (and call) of our desired
-function.
-
-The addresses of these sections can be found using `readelf`:
+from corresponding sections, and they are identified through indexes from the start of the section. The addresses of
+these sections can be found using `readelf`:
 
 ```
 readelf -d challenge
@@ -245,6 +238,26 @@ Dynamic section at offset 0x2e20 contains 24 entries:
  0x0000000000000017 (JMPREL)             0x400528
 ...
 ```
+
+For example, in the actual resolving of `fgets`, this is the helper function that is placed in GOT and called:
+
+```asm
+
+0x401020:    push   QWORD PTR [rip+0x2fe2] ; 0x404008
+0x401026:    bnd jmp QWORD PTR [rip+0x2fe3] ; 0x404010 (_dl_runtime_resolve_xsavec)
+; ...
+0x401030:    endbr64
+0x401034:    push   0x0 ; index of fgets JMPREL
+0x401039:    bnd jmp 0x401020
+```
+
+```
+pwndbg> tel 0x404010
+00:0000│  0x404010 (_GLOBAL_OFFSET_TABLE_+16) —▸ 0x7ffff7fd9660 (_dl_runtime_resolve_xsavec) ◂— endbr64
+```
+
+So, once we've faked all the structs, we need to jump to `0x401020` with the index of our fake `JMPREL` struct at top of
+stack, which will trigger the loading (and call) of our desired function. 
 
 ### STRTAB
 
@@ -276,8 +289,8 @@ st_value: 0x0
 st_size: 0x0
 ```
 
-`sym_idx`, which is the index of our fake struct from `SYMTAB` start, calculated by dividing the distance by `sizeof
-(Elf64_Sym)` which is 0x18.
+`sym_idx`, which is the index of our fake struct from `SYMTAB` start, is calculated by dividing the distance by
+`sizeof(Elf64_Sym)`, which is 0x18.
 
 ### JMPREL
 
@@ -294,35 +307,14 @@ r_offset: got address to write the resolved function address to
 r_info: (sym_idx << 32) | 0x7
 ```
 
-In the actual resolving of `fgets`, this is the helper function that is called:
-
-```asm
-0x401030:    endbr64
-0x401034:    push   0x0
-0x401039:    bnd jmp 0x401020
-```
-
-So we need to push the index of our fake `JMPREL` struct to the stack. The index is also calculated by dividing the
-distance by `sizeof (Elf64_Rel)` which is 0x18.
-
-Afterwards, we can jump straight to `0x401020`:
-
-```asm
-0x401020:    push   QWORD PTR [rip+0x2fe2] ; 0x404008
-0x401026:    bnd jmp QWORD PTR [rip+0x2fe3] ; 0x404010
-```
-
-and this will call the function stored there:
-
-```
-pwndbg> tel 0x404010
-00:0000│  0x404010 (_GLOBAL_OFFSET_TABLE_+16) —▸ 0x7ffff7fd9660 (_dl_runtime_resolve_xsavec) ◂— endbr64
-```
+Before calling the resolver, we need to put the index of our fake `JMPREL` struct at top of stack. The index is also
+calculated by dividing the distance by `sizeof(Elf64_Rel)` which is 0x18. Afterwards, we can jump straight to `0x401020`
+and trigger the resolver.
 
 ---
 
-But how do we write to a known location? As of the first write, `fgets` is writing to the stack, which we don't know the
-location of.
+Now that we know how to fake our structs, where do we write them to? As of the first write, `fgets` is writing to the
+stack, which we don't know the location of.
 
 Disassembly of main:
 
@@ -340,12 +332,12 @@ leave
 ret
 ```
 
-Notice that the buffer that `fgets` writes to is relative to `rbp`. We can control `rbp` when `leave` is executed, as it
-will pop top of stack into `rbp`, which we can overwrite through our buffer overflow. Therefore, we can carefully pivot
-the stack to a static region in memory, return to the `mov rdx, [rip+0x1ee7]` instruction (which sets `stdin` - if not
-`fgets` won't read from `stdin` and will error out), and continue our exploit from there.
+However, notice that the buffer that `fgets` writes to is relative to `rbp`. We can control `rbp` when `leave` is
+executed, as it will pop top of stack into `rbp`, which we can overwrite through our buffer overflow. Therefore, we can
+carefully pivot the stack to a static region in memory, return to the `mov rdx, [rip+0x1ee7]` instruction (which sets
+`stdin` - if not `fgets` won't read from `stdin` and will error out), and continue our exploit from there.
 
-Afterwards, it's just a matter of faking the structs, and then choosing where to jump to.
+Afterwards, it's just a matter of faking the structs, and then choosing what functions to resolve.
 
 ---
 
@@ -392,8 +384,10 @@ Another way to write to `_IO_stdfile_0_lock` is to use an input function that do
 call that function without needing to care about `rdx` being set to `stdin`. So let's resolve `gets` first!
 
 After `gets` is resolved, it will be called with `rdi` pointing to `_IO_stdfile_0_lock`, and hence write our input into
-there. Luckily for us, after `gets` is finished, it also ends up with the same `_IO_stdfile_0_lock` in `rdi`, which
-allows us to resolve `system` directly after with `rdi` pointing to `sh\x00`.
+there. In my exploit, I chose to write the address of `gets` to the `fgets` GOT, but it doesn't really matter, because
+for all intents and purposes, `gets` and `fgets` behave identically for us. After `gets` is finished, it also ends up
+with the same `_IO_stdfile_0_lock` in `rdi`, which allows us to resolve `system` directly after with `rdi` pointing to
+`sh\x00`.
 
 ## Exploit
 
@@ -528,8 +522,7 @@ p.interactive() # grey{i_actually_understand_ret2dlresolve}
 
 > If strcat exists why not memcat? or even memecat?? (Adapted from failed CS1010 exercise)
 >
-> Author: jro
->
+> Author: jro \
 > Solves: 1
 
 ```c
@@ -586,14 +579,13 @@ Now that we know some of the conditions we need to satisfy, let's also plan our 
 
 1. Get libc leak from unsorted chunk
 2. Get double free in tcache
-3. Arbitrary write to `__malloc_hook` (luckily we're on libc 2.31 which makes our pivot from arb write to RCE so much
-   easier with `__malloc_hook` and `__free_hook`)
+3. Arbitrary write to `__malloc_hook` (luckily we're on libc 2.31)
 
 ### Libc leak
 
 Since `b` and `c` both need to be in tcache in our first iteration, only `a` can be used as our unsorted chunk.
 Conveniently, since `a` is copied into `c`, we can also use `a` to create the fake size to fulfill `free(): invalid next
-size` check. Then, the very end of `a` should contain the fake unsorted chunk.
+size` check. Then, the very end of `a` should contain the fake unsorted chunk that we want to free.
 
 ```python
 p.sendlineafter(b"length of meme:", str(0x500).encode())
@@ -641,9 +633,10 @@ empty
 
 Our 2 fake tcache chunks are nicely placed in tcache, and the unsorted bin contains our one chunk with the libc leak.
 
-Unsorted bin is used to service small requests when tcache and fastbin are empty. In our next iteration, if we allocate
-a chunk of size 0x0, not only will it allocate from the unsorted bin, it will obviously also write 0 bytes to the chunk,
-which allows us to retain our libc leak (`fgets` appends null terminator).
+Unsorted bin is used to service small requests when tcache, fastbin, and smallbin don't have exact fit for the requested
+chunk size. In our next iteration, if we allocate a chunk of size 0x0, not only will it allocate from the unsorted bin,
+it will obviously also write 0 bytes to the memory at that chunk, which allows us to retain our libc leak (if not,
+`fgets` will append null terminator and block off our libc leak).
 
 ```python
 p.sendlineafter(b"length of meme:", str(0x0).encode())
@@ -665,11 +658,11 @@ chunks:
 ```
 x/50gx 0x194d790
 ┌───────────────────────────────┐ 
-│               │         0x421 │ <- fake 0x420 chunk (a)
-│               │               │
-│               │          0x41 │ <- fake 0x40 chunk (b)
-│ fd            │               │ fd points to ──────┐
-│               │          0x41 │<-──────────────────┘
+│               │         0x421 │ <- fake 0x420 chunk (a), freed
+│ libc leak     │               │
+│               │          0x41 │ <- fake 0x40 chunk  (b), freed
+│ fd            │               │ fd points to ──┐
+│               │          0x41 │<-──────────────┘    (c), freed
 │               │               │
 ...
 ```
@@ -681,9 +674,9 @@ x/50gx 0x194d790
 ┌───────────────────────────────┐
 │               │          0x21 │ <- a
 │ libc leak     │               │
-│               │          0x21 │ <- b
+│               │          0x21 │ <- b (initially 0x41)
 │               │               │
-│               │          0x21 │ <- c
+│               │          0x21 │ <- c (initially 0x41)
 │               │               │
 │               │         0x3c1 │ <- rest of unsorted chunk
 │               │               │
@@ -828,11 +821,10 @@ p.interactive() # grey{f4k3_chunk_17_71l_y0u_m4k3_17}
 
 > After the success of my heap allocator, I decided to help the NUSmods team out with a super fast data structure
 >
-> Author: jro
->
+> Author: jro \
 > Solves: 0
 
-The moment I saw this challenge, I immediately had nightmares of heapheapheap and closed it.
+The moment I saw this challenge, I immediately had nightmares of heapheapheap from quals and closed it.
 
 ---
 
@@ -1221,10 +1213,10 @@ stored, which will be passed to `_int_free`. `_int_free` then does stuff with it
 If we are able to control the pointer at this address, then we can achieve our partial write.
 
 And it's not hard - we just need to create enough chunks so that the heap expands all the way past our desired address
-of `heap_info` and write the `av` pointer to the location. Then when create a chunk (fastbin), overwrite its size to add
-the `non_main_arena` flag, and then free that chunk, it will write the pointer to the arena address we control. Small
-caveat - at around +0x880 from the start of our fake arena, there must be a sufficiently large value that goes into
-`system_mem`, if not we fail this check:
+of `heap_info` and write the `av` pointer to the location. Then when we create a chunk (fastbin), overwrite its size to
+add the `non_main_arena` flag, and then free that chunk, it will write the pointer to the arena address we control.
+Small caveat - at around +0x880 from the start of our fake arena, there must be a sufficiently large value that goes
+into `system_mem`, if not we fail this check:
 
 ```c
   if (__builtin_expect (chunksize_nomask (chunk_at_offset (p, size))
