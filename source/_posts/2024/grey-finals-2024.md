@@ -1,7 +1,6 @@
 ---
 title: GreyCTF Finals 2024
-date: 2024-08-03 18:11:55
-updated: 2024-08-03 18:11:55
+date: 2024-08-05 21:17:55
 categories:
     - Writeups
 tags:

@@ -153,31 +153,31 @@ void use_item(struct player *p) {
   }
 
   if (strstr(p->inv[idx], "Health potion") != NULL) {
-    printf("≡ƒÆë You ate a %s and gained 10 HP!\n", p->inv[idx]);
+    printf("💉 You ate a %s and gained 10 HP!\n", p->inv[idx]);
     p->hp += 10;
   } else if (strstr(p->inv[idx], "Attack potion") != NULL) {
-    printf("≡ƒÆ¬ You ate a %s and gained 5 AP!\n", p->inv[idx]);
+    printf("💪 You ate a %s and gained 5 AP!\n", p->inv[idx]);
     p->ap += 5;
   } else if (strstr(p->inv[idx], "Shield") != NULL) {
-    printf("≡ƒ¢í∩╕Å You ate a %s and gained 5 DP!\n", p->inv[idx]);
+    printf("🛡️ You ate a %s and gained 5 DP!\n", p->inv[idx]);
     p->dp += 5;
   } else if (strstr(p->inv[idx], "Poison") != NULL) {
-    printf("≡ƒÆÇ You ate a %s and lost 10 HP!\n", p->inv[idx]);
+    printf("💀 You ate a %s and lost 10 HP!\n", p->inv[idx]);
     p->hp -= 10;
   } else if (strstr(p->inv[idx], "Sleeping pill") != NULL) {
-    printf("≡ƒÆñ You ate a %s and fell asleep\n", p->inv[idx]);
+    printf("💤 You ate a %s and fell asleep\n", p->inv[idx]);
     for (int i = 0; i < 3; i++) {
       printf("z");
       sleep(1);
     }
     printf("\n");
   } else if (strstr(p->inv[idx], "NeuroSynthoQuantaXenithron 5000") != NULL) {
-    printf("≡ƒÅâ You ate a %s and feel like you can run faster!\n", p->inv[idx]);
+    printf("🏃 You ate a %s and feel like you can run faster!\n", p->inv[idx]);
     printf("(might be a placebo tho)\n");
   } else if (strstr(p->inv[idx], "Big mac") != NULL) {
-    printf("≡ƒìö You ate a %s and gained 0.5kg!\n", p->inv[idx]);
+    printf("🍔 You ate a %s and gained 0.5kg!\n", p->inv[idx]);
   } else {
-    printf("≡ƒñó You ate a %s and had a tummy ache\n", p->inv[idx]);
+    printf("🤢 You ate a %s and had a tummy ache\n", p->inv[idx]);
   }
 
   free(p->inv[idx]);
