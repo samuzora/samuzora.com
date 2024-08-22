@@ -5,4 +5,5 @@
 
 - id: CVE-2024-40453
   desc: RCE in Squirrelly <=9.0.0
+  link: https://nvd.nist.gov/vuln/detail/CVE-2024-40453
   post: /posts/cve-2024-40453
