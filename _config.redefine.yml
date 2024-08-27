@@ -67,7 +67,8 @@ global:
     percentage: true # percentage
   # Website counter
   website_counter:
-    url: https://cn.vercount.one/js # counter API URL (no need to change)
+    url: /assets/vercount-fix.js
+    # url: https://cn.vercount.one/js # counter API URL (no need to change)
     enable: true # enable website counter or not
     site_pv: false # site page view
     site_uv: false # site unique visitor
