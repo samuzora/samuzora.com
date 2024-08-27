@@ -1,6 +1,6 @@
 ---
 title: Sekai CTF 2024
-date: 2024-08-25 23:41:59
+date: 2024-08-27 08:41:59
 categories:
     - Writeups
 tags: 
