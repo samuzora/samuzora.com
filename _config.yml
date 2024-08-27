@@ -107,10 +107,9 @@ marked:
 ## Themes: https://hexo.io/themes/
 theme: redefine
 
+
 # Deployment
 ## Docs: https://hexo.io/docs/one-command-deployment
 deploy:
   type: ''
 
-image_minifier:
-  enable: false
