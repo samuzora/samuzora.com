@@ -1,0 +1,15 @@
+.statistics(class="flex justify-around my-2.5")
+  a.item.tag-count-item(class="flex flex-col justify-center items-center w-20" href=url_for(config.tag_dir))
+    .number(class="text-2xl sm:text-xl text-second-text-color font-semibold") #{site.tags.length}
+    .label(class="text-third-text-color text-sm") 
+      != __("tags")
+
+  a.item.tag-count-item(class="flex flex-col justify-center items-center w-20" href=url_for(config.category_dir))
+    .number(class="text-2xl sm:text-xl text-second-text-color font-semibold") #{site.categories.length}
+    .label(class="text-third-text-color text-sm") 
+      != __("categories")
+
+  a.item.tag-count-item(class="flex flex-col justify-center items-center w-20" href=url_for(config.archive_dir))
+    .number(class="text-2xl sm:text-xl text-second-text-color font-semibold") #{site.posts.length}
+    .label(class="text-third-text-color text-sm") 
+      != __("posts")

@@ -1,0 +1,14 @@
+.comments-container(class="mt-10 w-full")
+  #comment-anchor(class="w-full h-2.5")
+  .comment-area-title(class="w-full my-1.5 md:my-2.5 text-xl md:text-3xl font-bold")
+    != __("comments")
+  if theme.comment.enable
+    case theme.comment.system
+      when "waline"
+        include ./waline
+      when gitalk
+        inlcude ./gitalk
+      when "twikoo"
+        include ./twikoo
+      when "giscus"
+        include ./giscus

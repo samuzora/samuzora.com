@@ -1,0 +1,135 @@
+script.
+  const scrollToMain = () => {
+    const target = document.querySelector('.main-content-container');
+    target.scrollIntoView({ behavior: 'smooth'});
+  }
+
+if theme.home_banner.style === "fixed"
+  style(type="text/css").
+    .home-banner-container {
+       background: none !important;
+    }
+    .home-article-item,
+    .sidebar-links,
+    .sidebar-content,
+    a.page-number,
+    a.extend,
+    .sidebar-links .links:hover,
+    .right-bottom-tools,
+    footer.footer {
+      background-color: var(--background-color-transparent-80) !important;
+    }
+    .right-bottom-tools:hover,
+    a.page-number:hover,
+    a.extend:hover {
+      background-color: var(--primary-color) !important;
+    }
+    .site-info,
+    .home-article-sticky-label {
+      background-color: var(--background-color-transparent-15) !important;
+    }
+    .home-article-sticky-label {
+      backdrop-filter: none !important;
+    }
+
+  .home-banner-background(
+      class="fixed top-0 left-0 w-screen h-screen scale-125 sm:scale-110 box-border will-change-transform bg-cover"
+  )
+    img(
+      src=url_for(theme.home_banner.image.light)
+      alt="home-banner-background"
+      class="w-full h-full object-cover dark:hidden"
+    )
+    img(
+      src=url_for(theme.home_banner.image.dark)
+      alt="home-banner-background"
+      class="w-full h-full object-cover hidden dark:block"
+    )
+
+.home-banner-container(
+  class="flex justify-center items-center transition-fade relative"
+)
+  if theme.home_banner-style !== "fixed"
+    .home-banner-background(
+      class="transition-fade absolute top-0 left-0 w-screen h-screen scale-125 sm:scale-110 box-border will-change-transform bg-cover"
+    )
+      img(
+        src=url_for(theme.home_banner.image.light)
+        alt="home-banner-background"
+        class="w-full h-full object-cover dark:hidden"
+      )
+      img(
+        src=url_for(theme.home_banner.image.dark)
+        alt="home-banner-background"
+        class="w-full h-full object-cover hidden dark:block"
+      )
+
+    .content(
+      class="mt-8 flex flex-col justify-center items-center"
+    )
+      .description(
+        class="flex flex-col justify-center items-center w-screen font-medium text-center"
+        style=theme.home_banner.custom_font.enable && `font-family: ${theme.home_banner.custom_font.family}, sans-serif; !important`
+      ) #{theme.home_banner.title || config.description}
+        if theme.home_banner.subtitle.length !== 0
+          p
+            i(id="subtitle")
+      if theme.home_banner.social_links.enable
+        - 
+          const flexDirection = theme.home_banner.social_links.style === "reverse" ? "flex-row-reverse" : "flex-row"
+          const justify = theme.home_banner.social_links.style === "center" ? "justify-center" : "justify-between"
+          const display = theme.home_banner.social_links.style === "center" ? "hidden" : "flex"
+
+        div(class=`absolute bottom-0.5 flex ${flexDirection} ${justify} max-w-[1340px] items-center w-full px-8 sm:px-12`)
+          div(
+            class=`${display} p-3 bg-gray-300/50 dark:bg-gray-500/40 backdrop-blur-lg border border-white/20 dark:border-gray-500/30 group rounded-full cursor-pointer flex justify-center items-center aspect-square h-full shadow-redefine-flat hover:shadow-redefine-flat-hover transition-shadow`
+            onclick="scrollToMain()"
+          )
+            i(class="fa-solid fa-arrow-down fa-fw fa-lg group-hover:translate-y-1 transition-transform")
+          div(
+            class="social-contacts px-6 py-3 bg-gray-300/50 dark:bg-gray-500/40 backdrop-blur-lg border border-white/20 dark:border-gray-500/30 shadow-redefine-flat rounded-full flex flex-row gap-3 items-center"
+          )
+            each link, type in theme.home_banner.social_links.links
+              if (link)
+                if (type === "email")
+                  span.social-contact-item(
+                    class=type
+                  )
+                    a(href=`mailto:${link}`)
+                      i(class="fa-solid fa-fw fa-at fa-lg")
+                else if (type.includes("fa-"))
+                  span.social-contact-item(
+                    class=type
+                  )
+                    a(target="_blank" href=link)
+                      i(class=`${type} fa-fw fa-lg`)
+                else
+                  span.social-contact-item(
+                    class=type
+                  )
+                    a(target="_blank" href=link)
+                      i(class=`fa-brands fa-fw fa-lg fa-${type}`)
+            - var qrs = theme.home_banner.social_links.qrs || []
+            if qrs
+              each key in qrs
+                if qrs[key]
+                    if key.includes("fa-")
+                      span.social-contact-item-qr(
+                        class="cursor-pointer group"
+                      )
+                        a(target="_blank")
+                          i(class=`${key} fa-fw fa-lg`)
+                          .social-qr-container(
+                            class="social-qr-container absolute h-auto bg-background-color-transparent-40 border border-white/20 dark:border-gray-500/30 overflow-hidden rounded-2xl bottom-0 mb-14 right-0 invisible group-hover:visible opacity-0 group-hover:opacity-100 translate-y-0.5 group-hover:translate-y-0 transition-all"
+                          )
+                            img.social-contacts-qr(class="w-64" src=url_for(qrs[key]))
+                    else
+                      span.social-contact-item-qr(
+                        class=`${key} cursor-pointer group`
+                      )
+                        a(target="_blank")
+                          i(class=`fa-brands fa-fw fa-lg fa-${key}`)
+                          .social-qr-container(
+                            class="social-qr-container absolute h-auto bg-background-color-transparent-40 border border-white/20 dark:border-gray-500/30 overflow-hidden rounded-2xl bottom-0 mb-14 right-0 invisible group-hover:visible opacity-0 group-hover:opacity-100 translate-y-0.5 group-hover:translate-y-0 transition-all"
+                          )
+                             img.social-contacts-qr(src=url_for(qrs[key]) class="w-64")

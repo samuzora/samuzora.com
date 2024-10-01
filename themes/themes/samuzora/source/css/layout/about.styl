@@ -1,0 +1,112 @@
+$archive-year-font-size = 1.8rem
+$archive-year-count-font-size = 1.2rem
+$article-title-font-size = 1.2rem
+$article-date-font-size = 1rem
+
+@import '../common/variables'
+
+.article-title
+  font-size 1.6rem
+  margin-bottom 0.5em
+  color var(--default-text-color)
+
+.ctf-list-container
+  .ctf-list-item
+    margin-bottom $spacing-unit
+    user-select none
+
+    &:last-child
+      margin-bottom 0
+
+    &[open]
+      summary
+        background-color var(--background-color)
+
+    summary
+      background-color var(--background-color-transparent-80)
+
+      .ctf-header
+        .ctf-year
+          font-size $archive-year-font-size
+
+          +redefine-tablet()
+            font-size: $archive-year-font-size - 0.2rem
+
+          color var(--second-text-color)
+          font-weight 600
+          margin-right 6px
+
+        .ctf-year-count
+          font-size $archive-year-count-font-size
+          font-weight 500
+          color var(--second-text-color)
+
+          +redefine-tablet()
+            font-size: $archive-year-count-font-size * 0.9
+
+    .inner-ctf-list
+      padding-left 30px
+      font-size 14px
+      line-height 1.5
+      background-color var(--background-color-transparent-80)
+      border-radius 4px
+
+      +redefine-tablet()
+        padding-left 0
+
+      .ctf-title
+        font-size 1.6rem
+        color var(--default-text-color)
+
+      a
+        overflow hidden
+
+        &::hover
+          color var(--primary-color)
+
+      .inner-ctf-item
+        font-size 1rem
+        padding 3em 2em 1em
+        position relative
+        color rgba(0, 0, 0, 0.7)
+        border-left 2px solid var(--border-color)
+
+        &::before
+          content attr(date-is)
+          position absolute
+          left 2em
+          font-weight bold
+          top 1em
+          display block
+          font-weight 700
+          font-size 0.785rem
+          color var(--third-text-color)
+
+        &::after
+          width 10px
+          height 10px
+          display block
+          top 1em
+          position absolute
+          left -6px
+          border-radius 10px
+          content ''
+          border 2px solid var(--third-text-color)
+          background var(--background-color)
+          transition background 0.2s ease-in-out
+
+        &:last-child
+          border-image var(--archive-timeline-last-child-color)
+
+      .ctf-placing
+        font-size 1rem margin-bottom 0.5em
+        color var(--default-text-color)
+
+      .ctf-first-placing
+        color gold
+
+      .ctf-second-placing
+        color antiquewhite
+
+      .ctf-third-placing
+        color chocolate

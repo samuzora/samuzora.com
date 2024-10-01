@@ -1,0 +1,34 @@
+<div>
+    <h1 class="category-header"><%- __('tags') %></h1>
+</div>
+
+<% if (theme.page_templates.tags_style == 'cloud') { %>
+<div class="tagcloud-content">
+    <%- tagcloud({ min_font: 1, max_font: 5, unit: 'rem', amount: 100 }) %>
+</div>
+
+<% } else if (theme.page_templates.tags_style == 'blur') {%>
+<div class="tagcloud-content">
+    <ul class="tag-list" data-show-value="true">
+        <% site.tags.forEach(function(tag){ %>
+            <li>
+                <a data-num-posts="<%- tag.posts.length %>" data-weight="<%- tag.posts.length %>" href="<%- url_for("/" + tag.path) %>">
+                    <i class="fa-solid fa-hashtag"></i><%- tag.name %>
+                </a>
+            </li>
+        <% }) %>
+    </ul>
+</div>
+<% } else {%>
+<div class="tagcloud-content">
+    <ul class="tag-list" data-show-value="true">
+        <% site.tags.forEach(function(tag){ %>
+            <li>
+                <a data-num-posts="<%- tag.posts.length %>" href="<%- url_for("/" + tag.path) %>">
+                    <i class="fa-solid fa-hashtag"></i><%- tag.name %>
+                </a>
+            </li>
+        <% }) %>
+    </ul>
+</div>
+<% } %>

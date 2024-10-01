@@ -1,0 +1,101 @@
+header.navbar-container(class="px-6 md:px-12")
+  .navbar-content(class=(theme.home_banner.enable && is_home() && !page.prev) && "has-home-banner")
+    .left
+      if theme.defaults.hasOwnProperty("logo") && theme.defaults.logo
+        a.logo-image(href=config.root)
+          image_tag(theme.defaults.logo)
+
+      a.logo-title(href=config.root)
+        if is_home()
+          h1 #{theme.info.title || config.title || "Redefine Theme"}
+        else
+          #{theme.info.title || config.title || "Redefine Theme"}
+
+    .right
+      // desktop
+      .desktop
+        ul.navbar-list
+          each link, name in theme.navbar.links
+            unless link.path === "none"
+              - 
+                let isActive = isInHomePaging(page.path, link.path) || is_current(link.path)
+                let itemClass = link.submenus ? "has-dropdown" : (isActive && "active")
+                let href = link.submenus ? "#" : url_for(link.path)
+                let onclick = link.submenus && "return false;"
+              li.navbar-item
+                a(
+                  class=itemClass
+                  href=href
+                  onclick=onclick
+                )
+                  if link.icon 
+                    i(class=`${link.icon} fa-fw`)
+
+                  != __(name.toLowerCase()).toUpperCase()
+
+                  if link.submenus
+                    i(class="fa-solid fa-chevron-down fa-fw")
+
+                // render submenu
+                if link.submenus
+                  ul.sub-menu
+                    each submenuLink, submenuName in link.submenus
+                      li
+                        a(href=url_for(link.path))
+                          != __(submenuName.toLowerCase()).toUpperCase()
+
+          if theme.navbar.search.enable
+            li.navbar-item.search.search-popup-trigger
+              i(class="fa-solid fa-magnifying-glass")
+
+      // mobile
+      .mobile
+        if theme.navbar.search.enable
+          .icon-item.search.search-popup-trigger
+            i(class="fa-solid fa-magnifying-glass")
+
+        .icon-item.navbar-bar
+          .navbar-bar-middle
+
+  // mobile sheet
+  .navbar-drawer(class="h-screen w-full absolute top-0 left-0 bg-background-color flex flex-col justify-between")
+    ul.drawer-navbar-list(class="flex flex-col px-4 justify-center items-start")
+      each link, name in theme.navbar.links
+        unless link.path === "none"
+          - 
+            let isActive = isInHomePaging(page.path, link.path) || is_current(link.path)
+            let drawerNavbarItemClass = hasSubmenus ? "drawer-navbar-item-sub" : "drawer-navbar-item"
+
+          li(class=`${drawerNavbarItemClass} text-base my-1.5 flex flex-col w-full`)
+            if link.submenus
+              a(
+                class="py-1.5 px-2 flex flex-row items-center justify-between gap-1 hover:!text-primary active:!text-primary cursor-pointer text-2xl font-semibold group border-b border-border-color hover:border-primary w-full " + (isActive && active)
+                  href=link.path
+                )
+                  span != __(name.toLowerCase()).toUpperCase()
+
+                  if link.icon 
+                    i(class="fa-sm fa-fw " + link.icon)
+
+              if link.submenus
+                div(class="flex-col items-start px-2 py-2 hidden" data-target="submenu-" + name)
+                  each submenuLink, submenuName in link.submenus
+                    .drawer-navbar-item(class="text-base flex flex-col justify-center items-start hover:underline active:underline hover:underline-offset-1 rounded-3xl")
+                      a(class="text-third-text-color text-xl" href=url_for(submenuLink.path))
+                        != __(submenuName.toLowerCase()).toUpperCase()
+
+      if theme.home.sidebar.links !== null && theme.home.shidebar.show_on_mobile === true
+        each link, name in theme.home.sidebar.links
+          // exclude those already placed on navbar
+          unless theme.navbar.links && theme.navbar.links[name] !== undefined
+            li.drawer-navbar-item(class="text-base my-1.5 flex flex-col w-full")
+              a(
+                class="py-1.5 px-2 flex flex-row items-center justify-between gap-1 hover:!text-primary active:!text-primary text-2xl font-semibold group border-b border-border-color hover:border-primary w-full active"
+                href=url_for(link.path)
+              )
+              span != __(name)
+              i(class=`${link.icon} fa-sm fa-fw`)
+
+    include sidebar-components/statistics
+
+  .window-mask

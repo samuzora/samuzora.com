@@ -1,0 +1,39 @@
+<% let ctfs = site.data.ctfs.sort((a, b) => b.date - a.date).map(ctf => ({ ...ctf, year: date(ctf.date, 'YYYY') })) %>
+<% let ctfsByYear = ctfs.reduce((acc, ctf) => { %>
+    <% if (acc.hasOwnProperty(ctf.year)) { %>
+        <% acc[ctf.year].push(ctf) %>
+    <% } else { %>
+        <% acc[ctf.year] = [ctf] %>
+    <% } %>
+    <% return acc %>
+<% }, {}) %>
+
+<div class="ctf-list-container pb-8">
+    <h1 class="text-3xl font-bold mb-4">CTFs (the more notable ones)</h1>
+    <% Object.keys(ctfsByYear).reverse().map(year => { %>
+        <details class="ctf-list-item" data-header-exclude>
+            <summary>
+              <i class="fa-solid fa-chevron-right"></i>
+              <div class="ctf-header">
+                  <span class="ctf-year"><%= year %></span>
+                  <span class="ctf-year-count">[<%= ctfsByYear[year].length %>]</span>
+              </div>
+            </summary>
+            <ul class="inner-ctf-list pb-2">
+              <% ctfsByYear[year].map(ctf => { %>
+                <li class="inner-ctf-item mx-4" date-is='<%= date(ctf.date, 'MM-DD') %>'>
+                  <% if (ctf.url) { %>
+                    <a href="<%= ctf.url %>" class="ctf-title">
+                      <%= ctf.name %>
+                      <span class="fa-solid fa-external-link" aria-hidden="true"></span>
+                    </a>
+                  <% } else { %>
+                    <span class="ctf-title"><%= ctf.name %></span>
+                  <% } %>
+                  <div class="ctf-placing <%= ctf.class %>"><%= ctf.rank %></div>
+                </li>
+              <% }) %>
+            </ul>
+        </details>
+    <% }) %>
+</div>
