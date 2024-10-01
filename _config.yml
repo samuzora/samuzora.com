@@ -5,7 +5,7 @@
 # Site
 title: samuzora's blog
 subtitle: ctf stuff
-description: samuzora's blog - ctf stuff and more - web and pwn enthusiast
+description: samuzora's blog - ctf stuff and more - web and pwn
 keywords: ctf web pwn
 author: samuzora
 language: en
@@ -14,7 +14,7 @@ timezone: Asia/Singapore
 # URL
 ## Set your site url here. For example, if you use GitHub Page, set url as 'https://username.github.io/project'
 url: https://samuzora.com
-permalink: /posts/:title/
+permalink: /posts/:title
 permalink_defaults:
 pretty_urls:
   trailing_index: true # Set to false to remove trailing 'index.html' from permalinks
@@ -105,7 +105,7 @@ marked:
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: redefine
+theme: samuzora
 
 
 # Deployment

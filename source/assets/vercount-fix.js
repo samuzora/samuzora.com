@@ -1,3 +1,4 @@
+/* this script fixes the visitor count by only counting visits to the URL without a trailing slash */
 var t;
 !(function () {
   var e,
