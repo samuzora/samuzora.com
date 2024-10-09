@@ -1,6 +1,13 @@
+- name: TISC 2024
+  date: 2024-09-13
+  rank: Level 11/12 (2nd place)
+  class: ctf-second-placing
+  url: https://www.csit.gov.sg/events/tisc/tisc-2024
+
 - name: Sekai CTF 2024
   date: 2024-08-23
   rank: 11th place
+  url: https://2024.ctf.sekai.team/scoreboard/
 
 - name: GreyCTF Finals
   date: 2024-07-27
@@ -26,7 +33,7 @@
   rank: 1st place
   class: ctf-first-placing
 
-- name: TISC
+- name: TISC 2023
   date: 2023-10-01
   rank: Level 8/10 (14th place)
   url: https://www.csit.gov.sg/events/tisc/tisc-2023
