@@ -1,12 +1,12 @@
 ---
 import PostsList from "@layouts/PostsList.astro"
-import { getCollection, getEntry } from "astro:content";
+import { getCollection } from "astro:content";
 
 export async function getStaticPaths() {
   const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
 
-  const postsByYear = posts.reduce((acc, post) => {
-    const year = post.data.date.getFullYear();
+  const postsByYear = posts.reduce((acc: any, post) => {
+    const year: number = post.data.date.getFullYear();
     if (!acc[year]) {
       acc[year] = [];
     }
@@ -21,8 +21,8 @@ export async function getStaticPaths() {
 
 const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
 
-const postsByYear = posts.reduce((acc, post) => {
-  const year = post.data.date.getFullYear();
+const postsByYear = posts.reduce((acc: any, post) => {
+  const year: number = post.data.date.getFullYear();
   if (!acc[year]) {
     acc[year] = [];
   }

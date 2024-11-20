@@ -1,11 +1,10 @@
 ---
 import PostsList from "@layouts/PostsList.astro"
-import Card from "@components/Card.vue"
-import { getCollection, getEntry } from "astro:content";
+import { getCollection } from "astro:content";
 
 const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
 
-const postsByYear = posts.reduce((acc, post) => {
+const postsByYear = posts.reduce((acc: any, post) => {
   const year = post.data.date.getFullYear();
   if (!acc[year]) {
     acc[year] = [];
@@ -15,7 +14,6 @@ const postsByYear = posts.reduce((acc, post) => {
 }, {});
 
 const latestYear = Object.keys(postsByYear)[Object.keys(postsByYear).length - 1];
-const latestPosts = postsByYear[latestYear];
 ---
 
 <PostsList 

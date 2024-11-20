@@ -2,26 +2,23 @@
 import Layout from "@layouts/Layout.astro";
 import Card from "@components/Card.vue";
 
+
 interface Props {
   selectedYear: string;
   postsByYear: {
     [year: string]: {
-      slug: string;
-      data: {
         title: string;
         excerpt: string;
         date: Date;
         category: string;
         tags: string[];
-      };
-      body: string;
-    }
+      }
   };
 }
 
 const { selectedYear, postsByYear } = Astro.props;
 
-const latestPosts = postsByYear[selectedYear];
+const latestPosts: any = postsByYear[selectedYear];
 ---
 
 <Layout title="samuzora's blog">
@@ -36,7 +33,7 @@ const latestPosts = postsByYear[selectedYear];
         ))}
       </div>
       <div class="flex flex-col gap-10">
-        {latestPosts.map(post => (
+        {latestPosts.map((post: any) => (
         <Card>
           <div class="pb-3">
             <a class="text-2xl font-bold" href={"/posts/" + post.slug}>{post.data.title}</a>

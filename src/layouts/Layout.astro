@@ -72,15 +72,13 @@ const config = {
     <meta name="robots" content="index, follow" />
     <meta name="googlebot" content="index, follow" />
     <meta name="revisit after" content="1 days" />
-    <link rel="canonical" href={ config.meta.canonical } />
     <link rel="sitemap" href="/sitemap-index.sml" />
 
     <!-- sns stuff -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content={ title } />
-    <meta property="og:site_name" content={ config.meta.title }/>
+    <meta property="og:site_name" content={ title }/>
     <meta property="og:description" content={ config.meta.description } />
-    <meta property="og:url" content={ config.meta.canonical } />
     <meta property="og:locale" content="en_SG" />
     <meta property="article:author" content="samuzora" />
     <meta property="article:tag" content={ config.meta.keywords.join(" ") } />
@@ -149,33 +147,35 @@ const config = {
 <script>
 document.addEventListener("astro:page-load", () => {
   const blurContainer = document.querySelector("[data-home-background]");
-  const header = document.querySelector(".header");
-  const navs = document.querySelectorAll(".nav");
+  const header: HTMLElement | null = document.querySelector(".header");
+  const navs: any = document.querySelectorAll(".nav");
   const trigger = 0.5 * window.innerHeight;
 
-  const scrollEvent = () => {
-    if (window.scrollY > 50) {
-      header.style.height = "60px";
-      for (const nav of navs) {
-        nav.style.height = "60px";
-        nav.style.lineHeight = "60px";
+  if (header && blurContainer) {
+    const scrollEvent = () => {
+      if (window.scrollY > 50) {
+        header.style.height = "60px";
+        for (const nav of navs) {
+          nav.style.height = "60px";
+          nav.style.lineHeight = "60px";
+        }
+      } else {
+        header.style.height = "80px";
+        for (const nav of navs) {
+          nav.style.height = "50px";
+          nav.style.lineHeight = "50px";
+        }
       }
-    } else {
-      header.style.height = "80px";
-      for (const nav of navs) {
-        nav.style.height = "50px";
-        nav.style.lineHeight = "50px";
+
+      if (window.scrollY >= trigger || location.pathname !== "/") {
+        blurContainer.classList.add("blur");
+      } else {
+        blurContainer.classList.remove("blur");
       }
     }
 
-    if (window.scrollY >= trigger || location.pathname !== "/") {
-      blurContainer.classList.add("blur");
-    } else {
-      blurContainer.classList.remove("blur");
-    }
+    scrollEvent();
+    window.addEventListener("scroll", scrollEvent);
   }
-
-  scrollEvent();
-  window.addEventListener("scroll", scrollEvent);
 })
 </script>

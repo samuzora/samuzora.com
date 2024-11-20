@@ -20,19 +20,13 @@ import socials from "@data/socials.yml";
     </div>
     <div class="absolute bottom-10 w-full h-14 px-5 md:px-20 flex justify-end md:justify-between text-[--first-text-color] text-lg">
       <!-- TODO: define the onclick event -->
-      <script>
-      const scrolldown = document.getElementById("scrolldown");
-      scrolldown.addEventListener("click", () => {
-        scrolldown.scrollIntoView({behavior: "smooth"}); // works because it just so happens that scrolldown is the correct height due to header
-      });
-      </script>
       <div id="scrolldown" class="hidden md:flex rounded-full h-full aspect-square p-3 justify-center items-center bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg] cursor-pointer hover:border-[3px] hover:pt-5 transition-all">
         <i class="fa-regular fa-arrow-down"></i>
       </div>
 
       <div class="rounded-full h-full p-5 flex justify-around items-center gap-6 bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg]">
         {
-          socials.map(social => <a class={social.icon} href={social.link}></a>)
+          socials.map((social: any) => <a class={social.icon} href={social.link}></a>)
         }
       </div>
     </div>
@@ -59,7 +53,7 @@ import socials from "@data/socials.yml";
       <div class="w-full z-10">
         <h1 class="home-h1 w-full">CVEs</h1>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
-          {cves.map((cve) => (
+          {cves.map((cve: any) => (
           <Card class="w-full h-[144px] md:w-[344px] lg:w-[300px] relative">
             <h3 class="text-[--first-text-color]">
               <a href={cve.link} target="_blank">
@@ -83,11 +77,11 @@ import socials from "@data/socials.yml";
       <div class="w-full z-10">
         <h1 class="home-h1 mb-0 w-full">CTFs</h1>
           <div class="hide-scrollbar py-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap">
-            {Object.entries(ctfs).map(([year, events]) => (
+          {Object.entries(ctfs).map(([year, events]: [any, any]) => (
             <Card class="align-top snap-center overflow-y-hidden inline-block mx-2 w-10/12 md:w-11/12">
               <h2 class="home-h2">{year}</h2>
               <div class="timeline pb-2">
-                {events.map(event => (
+                {events.map((event: any) => (
                 <div class="event top-0 bottom-0 left-5" data-date={event.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}>
                   {event.name}
                   <div class={"rank " + event.type}>
@@ -127,7 +121,7 @@ document.addEventListener("astro:page-load", () => {
     usrSmartBackspace: true,
   };
 
-  function initTyped(id) {
+  function initTyped(id: any) {
     const {
       usrTypeSpeed,
       usrBackSpeed,
@@ -137,7 +131,8 @@ document.addEventListener("astro:page-load", () => {
       usrSmartBackspace,
     } = config;
 
-    function typing(dataList) {
+    function typing(dataList: any) {
+      // @ts-ignore
       const st = new Typed("#" + id, {
         strings: [dataList],
         typeSpeed: usrTypeSpeed || 100,
@@ -163,6 +158,7 @@ document.addEventListener("astro:page-load", () => {
         "b'\\xd0\\x9e\\xdb\\xf7\\xff\\x7f\\x00\\x00'",
     ];
     if (document.getElementById(id)) {
+      // @ts-ignore
       const st = new Typed("#" + id, {
         strings: sentenceList,
         typeSpeed: usrTypeSpeed || 100,
@@ -176,6 +172,15 @@ document.addEventListener("astro:page-load", () => {
   }
 
   initTyped("subtitle");
+
+  // scrolldown button
+  const scrolldown = document.getElementById("scrolldown");
+  if (scrolldown) {
+    scrolldown.addEventListener("click", () => {
+     // works because it just so happens that scrolldown is the correct height due to header
+      scrolldown.scrollIntoView({behavior: "smooth"});
+    });
+  }
 
   // ctf carousel
   const scrollbox = document.querySelector(".hide-scrollbar");
