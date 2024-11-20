@@ -1,0 +1,308 @@
+---
+import Layout from '@layouts/Layout.astro';
+import Card from "../components/Card.vue";
+import {Content as Intro} from "@data/intro.md";
+import cves from "@data/cves.yml";
+import ctfs from "@data/ctfs.yml";
+import socials from "@data/socials.yml";
+---
+
+<Layout title="samuzora's blog">
+  <div class="h-screen flex justify-center items-center transition-fade relative">
+    <div class="flex flex-col items-center">
+      <div class="title">
+        samuzora.com
+      </div>
+      <!-- styling in main.css not here because of astro compilation messing up the classes -->
+      <p class="typing">
+        <i id="subtitle" />
+      </p>
+    </div>
+    <div class="absolute bottom-10 w-full h-14 px-5 md:px-20 flex justify-end md:justify-between text-[--first-text-color] text-lg">
+      <!-- TODO: define the onclick event -->
+      <script>
+      const scrolldown = document.getElementById("scrolldown");
+      scrolldown.addEventListener("click", () => {
+        scrolldown.scrollIntoView({behavior: "smooth"}); // works because it just so happens that scrolldown is the correct height due to header
+      });
+      </script>
+      <div id="scrolldown" class="hidden md:flex rounded-full h-full aspect-square p-3 justify-center items-center bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg] cursor-pointer hover:border-[3px] hover:pt-5 transition-all">
+        <i class="fa-regular fa-arrow-down"></i>
+      </div>
+
+      <div class="rounded-full h-full p-5 flex justify-around items-center gap-6 bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg]">
+        {
+          socials.map(social => <a class={social.icon} href={social.link}></a>)
+        }
+      </div>
+    </div>
+  </div>
+
+  <div class="main-content mx-5 px-auto w-auto">
+    <div class="flex flex-wrap mx-auto justify-evenly items-start gap-10 w-auto md:w-[728px] lg:w-[984px]">
+
+      <Card class="profile flex flex-col gap-3 items-center text-[--first-text-color] text-sm w-full md:w-[228px]">
+        <div class="flex flex-col items-center gap-1">
+          <img src="/assets/samuzora.png" class="avatar rounded-xl w-20 h-20" alt="author" />
+          <div class="text-lg text-align-center">samuzora</div>
+        </div>
+        <hr class="w-full border-[--secondary-bg]" />
+        <div class="flex justify-center items-center h-full">playing ctfs since 2021</div>
+      </Card>
+
+      <Card class="flex-auto w-full md:w-[460px]">
+        <div class="markdown-body">
+          <Intro />
+        </div>
+      </Card>
+
+      <div class="w-full z-10">
+        <h1 class="home-h1 w-full">CVEs</h1>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+          {cves.map((cve) => (
+          <Card class="w-full h-[144px] md:w-[344px] lg:w-[300px] relative">
+            <h3 class="text-[--first-text-color]">
+              <a href={cve.link} target="_blank">
+                {cve.id}
+                <i class="fa-regular fa-external-link"></i>
+              </a>
+            </h3>
+            {cve.description}
+            <div class="absolute bottom-5 right-5">
+              <a href={cve.writeup}>
+                Read more
+                <i class="fa-regular fa-angle-right"></i>
+              </a>
+            </div>
+          </Card>
+          ))
+          }
+        </div>
+      </div>
+
+      <div class="w-full z-10">
+        <h1 class="home-h1 mb-0 w-full">CTFs</h1>
+          <div class="hide-scrollbar py-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap">
+            {Object.entries(ctfs).map(([year, events]) => (
+            <Card class="align-top snap-center overflow-y-hidden inline-block mx-2 w-10/12 md:w-11/12">
+              <h2 class="home-h2">{year}</h2>
+              <div class="timeline pb-2">
+                {events.map(event => (
+                <div class="event top-0 bottom-0 left-5" data-date={event.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}>
+                  {event.name}
+                  <div class={"rank " + event.type}>
+                    {event.rank}
+                  </div>
+                </div>
+                ))}
+              </div>
+            </Card>
+            ))}
+          </div>
+          <div class="hidden sm:flex justify-center mt-3 h-10 gap-3">
+            <button data-left-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
+              <i class="fa-regular fa-angle-left"></i>
+            </button>
+            <button data-right-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
+              <i class="fa-regular fa-angle-right"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script src="https://unpkg.com/typed.js@2.1.0/dist/typed.umd.js" />
+
+<script>
+document.addEventListener("astro:page-load", () => {
+  // typing animation
+  const config = {
+    usrTypeSpeed: 100,
+    usrBackSpeed: 60,
+    usrBackDelay: 1500,
+    usrStartDelay: 500,
+    usrLoop: true,
+    usrSmartBackspace: true,
+  };
+
+  function initTyped(id) {
+    const {
+      usrTypeSpeed,
+      usrBackSpeed,
+      usrBackDelay,
+      usrStartDelay,
+      usrLoop,
+      usrSmartBackspace,
+    } = config;
+
+    function typing(dataList) {
+      const st = new Typed("#" + id, {
+        strings: [dataList],
+        typeSpeed: usrTypeSpeed || 100,
+        smartBackspace: usrSmartBackspace || false,
+        backSpeed: usrBackSpeed || 80,
+        backDelay: usrBackDelay || 1500,
+        loop: usrLoop || false,
+        startDelay: usrStartDelay || 500,
+      });
+    }
+
+    const sentenceList = [
+        "learning pwn, web and smart contract",
+        'p.sendline(b"A"*0x1000)',
+        "nvim4life",
+        "b *main+429",
+        "ctf writeups",
+        "cat ./flag.txt",
+        "x/50gx 0xfff8881012996000",
+        "nvim solve.py",
+        "p.interactive()",
+        "' or 1=1 -- ",
+        "b'\\xd0\\x9e\\xdb\\xf7\\xff\\x7f\\x00\\x00'",
+    ];
+    if (document.getElementById(id)) {
+      const st = new Typed("#" + id, {
+        strings: sentenceList,
+        typeSpeed: usrTypeSpeed || 100,
+        smartBackspace: usrSmartBackspace || false,
+        backSpeed: usrBackSpeed || 80,
+        backDelay: usrBackDelay || 1500,
+        loop: usrLoop || false,
+        startDelay: usrStartDelay || 500,
+      });
+    }
+  }
+
+  initTyped("subtitle");
+
+  // ctf carousel
+  const scrollbox = document.querySelector(".hide-scrollbar");
+  const leftButton = document.querySelector("[data-left-button]");
+  const rightButton = document.querySelector("[data-right-button]");
+
+  if (scrollbox && leftButton && rightButton) {
+    scrollbox.scrollLeft = scrollbox.scrollWidth;
+
+    const scrollLeft = () => {
+      scrollbox.scroll({left: scrollbox.scrollLeft - window.innerWidth * 0.6, behavior: "smooth"});
+    }
+    const scrollRight = () => {
+      scrollbox.scroll({left: scrollbox.scrollLeft + window.innerWidth * 0.6, behavior: "smooth"});
+    }
+
+    leftButton.addEventListener("click", scrollLeft);
+    rightButton.addEventListener("click", scrollRight);
+  }
+})
+</script>
+
+<style>
+  .title {
+    color: var(--third-text-color);
+    font-family: "Chillax", sans-serif;
+    font-size: 45px;
+  }
+
+  .profile {
+    font-family: "Chillax", sans-serif;
+  }
+
+  .avatar {
+    outline: solid 2px var(--secondary-bg);
+  }
+
+  .home-h1 {
+    font-family: "Chillax", sans-serif;
+    font-weight: 500 !important;
+    border-bottom: none;
+    margin-bottom: 16px !important;
+  }
+
+  .home-h2 {
+    font-family: "Chillax", sans-serif;
+    font-size: 24px;
+    font-weight: 400 !important;
+    border-bottom: none;
+  }
+
+  .timeline {
+    line-height: 1.5;
+    border-radius: 4px;
+  }
+
+  .event {
+    position: relative;
+    padding: 3rem 2rem 1rem;
+    border-left: 2px solid var(--primary-color);
+    font-size: 1.6rem;
+    font-weight: 900;
+  }
+
+  .event::before {
+    display: block;
+    content: attr(data-date);
+    position: absolute;
+    top: 1rem;
+    left: 2rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--second-text-color);
+  }
+
+  .event::after {
+    display: block;
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    top: calc(1rem + 5px);
+    left: -6px;
+    border-radius: 10px;
+    border: 2px solid var(--primary-color);
+    background: var(--primary-bg);
+  }
+
+  @media (max-width: 640px) {
+    .event {
+      font-size: 1rem;
+      padding: 2.5rem 1rem 1rem;
+    }
+
+    .event::before {
+      left: 1rem;
+    }
+  }
+
+  .rank {
+    font-size: 1rem;
+    font-weight: 300;
+  }
+
+  @media (max-width: 640px) {
+    .rank {
+      font-size: 0.7rem;
+    }
+  }
+
+  .ctf-first-place {
+    color: gold;
+  }
+
+  .ctf-second-place {
+    color: antiquewhite;
+  }
+
+  .ctf-third-place {
+    color: chocolate;
+  }
+
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+</style>

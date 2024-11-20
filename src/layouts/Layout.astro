@@ -1,0 +1,181 @@
+---
+import Nav from "../components/Nav.vue";
+import { ViewTransitions } from "astro:transitions";
+
+interface Props {
+	title: string;
+}
+
+const { title } = Astro.props;
+
+const config = {
+  meta: {
+    description: "samuzora's blog - ctf stuff and more",
+    keywords: [
+      "ctf",
+      "pwn",
+      "web",
+      "cves",
+      "exploit",
+      "cybersecurity",
+      "kernel",
+      "writeup"
+    ],
+    author: "samuzora",
+    base: "https://samuzora.com"
+  },
+}
+---
+
+<!doctype html>
+<html lang="en" transition:animate="none">
+	<head>
+    <!-- browser stuff -->
+		<title>{ title }</title>
+
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="192x192" />
+    <link rel="apple-touch-icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+
+    <!-- meta -->
+		<meta charset="UTF-8" />
+    <meta name="description" content={ config.meta.description } />
+    <meta name="keywords" content={ config.meta.keywords.join(" ") } />
+    <meta name="author" content={ config.meta.author } />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- fonts -->
+    <link rel="preload" href="https://fonts.cdnfonts.com/css/chillax" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.cdnfonts.com/css/chillax"></noscript>
+
+    <link rel="preload" href="https://fonts.cdnfonts.com/css/fredoka" as="style" onload="this.onload=null;this.rel='stylesheet'"> 
+    <noscript><link rel="stylesheet" href="https://fonts.cdnfonts.com/css/fredoka"></noscript>
+
+    <link rel="preload" href="/css/fontawesome/fontawesome.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="/css/fontawesome/fontawesome.min.css"></noscript>
+
+    <link rel="preload" href="/css/fontawesome/regular.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="/css/fontawesome/regular.min.css"></noscript>
+
+    <link rel="preload" href="/css/fontawesome/brands.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="/css/fontawesome/brands.min.css"></noscript>
+
+    <!-- <link rel="preconnect" href="https://fonts.googleapis.com" /> -->
+    <!-- <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /> -->
+    <!-- <link rel="stylesheet" href="/css/fontawesome/all.min.css"> -->
+    <!-- <link rel="stylesheet" href="/css/fontawesome/thin.min.css"> -->
+    <!-- <link rel="stylesheet" href="/css/fontawesome/light.min.css"> -->
+
+    <!-- TODO: configure cdn -->
+
+    <!-- seo -->
+    <meta name="robots" content="index, follow" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="revisit after" content="1 days" />
+    <link rel="canonical" href={ config.meta.canonical } />
+    <link rel="sitemap" href="/sitemap-index.sml" />
+
+    <!-- sns stuff -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={ title } />
+    <meta property="og:site_name" content={ config.meta.title }/>
+    <meta property="og:description" content={ config.meta.description } />
+    <meta property="og:url" content={ config.meta.canonical } />
+    <meta property="og:locale" content="en_SG" />
+    <meta property="article:author" content="samuzora" />
+    <meta property="article:tag" content={ config.meta.keywords.join(" ") } />
+    <meta property="twitter:card" content="summary" />
+
+    <link rel="stylesheet" href="/css/main.css" />
+    <style>
+      .home-banner-background {
+        background-image: url("/assets/bg-dark.png");
+      }
+
+      .header {
+        height: 80px;
+        background: rgb(216 188 131 / 10%);
+        font-family: "Chillax", sans-serif;
+        transition: height 0.2s ease-out;
+      }
+
+      .footer {
+        border-top: 1px solid var(--secondary-bg);
+        padding: 16px;
+        background: var(--primary-bg);
+        height: 100px;
+      }
+    </style>
+
+    <ViewTransitions />
+  </head>
+	<body>
+    <div class="relative min-h-screen">
+      <div class="pb-[200px]">
+        <div data-home-background class={"home-banner-background transition fixed top-0 left-0 w-screen h-screen scale-125 sm:scale-110 bg-cover" + (Astro.url.pathname !== "/" ? " blur" : "")}></div>
+        <div class="header fixed flex justify-between top-0 left-0 z-50 w-full px-5 md:px-10 lg:px-10 backdrop-blur-lg">
+          <div class="my-auto hidden md:block text-[28px] font-[500]">
+            <a href="/">samuzora.com</a>
+          </div>
+          <div class="flex gap-10 text-[20px] my-auto">
+            <Nav active={Astro.url.pathname === "/" ? true : undefined} href="/">
+              <i class="fa-regular fa-home"></i>
+              HOME
+            </Nav>
+            <Nav active={Astro.url.pathname.startsWith("/browse") ? true : undefined } href="/browse">
+              <i class="fa-regular fa-archive"></i>
+              BLOG
+            </Nav>
+          </div>
+        </div>
+
+        <!-- main content -->
+        <div transition:animate="fade">
+          <slot />
+        </div>
+
+      </div>
+      <div class="footer absolute bottom-0 w-full mt-10 flex align-center justify-center">
+        <div class="my-auto text-center text-[--second-text-color] text-lg font-[600]">
+          samuzora © 2021 - 2024
+        </div>
+      </div>
+    </div>
+
+
+	</body>
+</html>
+
+<script>
+document.addEventListener("astro:page-load", () => {
+  const blurContainer = document.querySelector("[data-home-background]");
+  const header = document.querySelector(".header");
+  const navs = document.querySelectorAll(".nav");
+  const trigger = 0.5 * window.innerHeight;
+
+  const scrollEvent = () => {
+    if (window.scrollY > 50) {
+      header.style.height = "60px";
+      for (const nav of navs) {
+        nav.style.height = "60px";
+        nav.style.lineHeight = "60px";
+      }
+    } else {
+      header.style.height = "80px";
+      for (const nav of navs) {
+        nav.style.height = "50px";
+        nav.style.lineHeight = "50px";
+      }
+    }
+
+    if (window.scrollY >= trigger || location.pathname !== "/") {
+      blurContainer.classList.add("blur");
+    } else {
+      blurContainer.classList.remove("blur");
+    }
+  }
+
+  scrollEvent();
+  window.addEventListener("scroll", scrollEvent);
+})
+</script>
