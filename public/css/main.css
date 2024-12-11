@@ -20,6 +20,7 @@
 
 html {
     font-family: "Fredoka", sans-serif !important;
+    background: var(--primary-bg);
     color: var(--first-text-color);
     line-height: 1.5rem;
 }
