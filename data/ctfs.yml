@@ -120,5 +120,4 @@
   - name: Sieberrsec
     date: 2021-12-27
     rank: 3rd place
-    class: ctf-third-place
-
+    type: ctf-third-place

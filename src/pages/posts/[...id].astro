@@ -62,20 +62,26 @@ const nestedHeadings = buildHierarchy(headings);
     </div>
     }
     <div data-main-content class="flex flex-col gap-10 min-w-[300px] md:w-[748px] lg:max-w-[904px] xl:max-w-[1300px]">
-      <Card class="!bg-[--primary-bg] lg:hidden">
-        <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} />
-      </Card>
+      <!-- <Card class="!bg-[--primary-bg] lg:hidden"> -->
+      <!--   <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} /> -->
+      <!-- </Card> -->
       <div class="flex flex-col gap-2 relative">
-        {
-        nestedHeadings.length > 0 && 
-        <Card class="!bg-[--primary-bg] rounded-none md:rounded-lg -mx-6 lg:hidden max-h-64 overflow-y-auto">
-          <Toc client:load headings={nestedHeadings} />
-        </Card>
-        }
+        <!-- { -->
+        <!-- nestedHeadings.length > 0 &&  -->
+        <!-- <Card class="!bg-[--primary-bg] rounded-none md:rounded-lg -mx-6 lg:hidden max-h-64 overflow-y-auto"> -->
+        <!--   <Toc client:load headings={nestedHeadings} /> -->
+        <!-- </Card> -->
+        <!-- } -->
         <Card class="!bg-[--primary-bg] rounded-none md:rounded-lg -mx-6 md:mx-0 p-10">
-          <div class="hidden lg:block pb-10">
+          <!-- <div class="hidden lg:block pb-10"> -->
+          <!--   <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} /> -->
+          <!-- </div> -->
+          <div class="pb-10">
             <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} />
           </div>
+          <Card class="mb-5">
+            <Toc client:load headings={nestedHeadings} />
+          </Card>
           <div class="markdown-body">
             <Content />
           </div>
