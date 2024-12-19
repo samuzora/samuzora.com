@@ -79,7 +79,7 @@ const nestedHeadings = buildHierarchy(headings);
           <div class="pb-10">
             <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} />
           </div>
-          <Card class="mb-5">
+          <Card class="lg:hidden mb-5">
             <Toc client:load headings={nestedHeadings} />
           </Card>
           <div class="markdown-body">
