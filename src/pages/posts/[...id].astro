@@ -25,39 +25,39 @@ const nextPost = postIndex < posts.length ? posts[postIndex + 1] : null;
 const { Content, headings, remarkPluginFrontmatter } = await post.render();
 
 // github.com/rezahedi/rezahedi.dev/blob/main/src/components/TOC.astro
-function buildHierarchy(headings: any)
-{
-  const toc: any[] = [];
-  const parentHeadings = new Map();
-  
-  if (!headings)
-    return toc;
-  
-  headings.forEach((h: any) => {
-    const heading = { ...h, subheadings: [] };
-    parentHeadings.set(heading.depth, heading);
-    // Change 2 to 1 if your markdown includes your <h1>
-    if (heading.depth === 1) {
-      toc.push(heading);
-    } else {
-      parentHeadings.get(heading.depth - 1).subheadings.push(heading);
-    }
-  });
-  return toc;
-}
-
-const nestedHeadings = buildHierarchy(headings);
+// function buildHierarchy(headings: any)
+// {
+//   const toc: any[] = [];
+//   const parentHeadings = new Map();
+//
+//   if (!headings)
+//     return toc;
+//
+//   headings.forEach((h: any) => {
+//     const heading = { ...h, subheadings: [] };
+//     parentHeadings.set(heading.depth, heading);
+//     // Change 2 to 1 if your markdown includes your <h1>
+//     if (heading.depth === 1) {
+//       toc.push(heading);
+//     } else {
+//       parentHeadings.get(heading.depth - 1).subheadings.push(heading);
+//     }
+//   });
+//   return toc;
+// }
+//
+// const nestedHeadings = buildHierarchy(headings);
 ---
 
 <Layout title={post.data.title}>
   <div class="relative flex justify-center pt-[125px] px-6 md:px-32 xl:px-16 mx-auto">
     {
-    nestedHeadings.length > 0 && 
+    headings.length > 0 && 
     <div class="sticky lg:w-[125px] xl:w-[200px] self-start hidden lg:flex mr-10 top-[125px] items-start gap-5 h-[calc(100vh-200px)] overflow-y-auto">
       <!-- <button data-toc-button class="fas fa-indent text-lg px-3 aspect-square bg-[--primary-bg-transparent-80] backdrop-blur border border-[--secondary-bg] rounded-lg hover:text-[--primary-bg] hover:bg-[--primary-color] transition-all"> -->
       <!-- </button> -->
       <div data-toc>
-        <Toc client:load headings={nestedHeadings} />
+        <Toc client:load headings={headings} />
       </div>
     </div>
     }
@@ -79,9 +79,12 @@ const nestedHeadings = buildHierarchy(headings);
           <div class="pb-10">
             <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} />
           </div>
-          <Card class="lg:hidden mb-5">
-            <Toc client:load headings={nestedHeadings} />
-          </Card>
+          {
+            headings.length > 0 &&
+            <Card class="lg:hidden mb-5">
+              <Toc client:load headings={headings} />
+            </Card>
+          }
           <div class="markdown-body">
             <Content />
           </div>

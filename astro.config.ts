@@ -3,6 +3,8 @@ import { defineConfig } from "astro/config";
 import yaml from "@rollup/plugin-yaml"
 import { remarkReadingTime } from "./remark-reading-time.mjs";
 import sectionize from "remark-sectionize";
+import remarkToc from "remark-toc";
+
 import { rehypePrettyCode } from "rehype-pretty-code";
 import { 
   transformerNotationDiff, 
@@ -40,6 +42,7 @@ export default defineConfig({
     remarkPlugins: [
       remarkReadingTime,
       sectionize as any,
+      remarkToc,
     ],
   },
 

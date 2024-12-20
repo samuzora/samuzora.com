@@ -1,7 +1,34 @@
 <script setup>
 import { onMounted, onUnmounted } from "vue";
+import TocEntry from "./TocEntry.vue"
 
 const props = defineProps(["headings"]);
+const toc = buildToc(props.headings);
+
+function buildToc(headings) {
+  const toc = []
+  const stack = []
+
+  headings.forEach((h) => {
+    const heading = { ...h, subheadings: [] }
+
+    while (stack.length > 0 && stack[stack.length - 1].depth >= heading.depth) {
+      stack.pop()
+    }
+
+    if (stack.length === 0) {
+      toc.push(heading)
+    } else {
+      stack[stack.length - 1].subheadings.push(heading)
+    }
+
+    stack.push(heading)
+  })
+
+  return toc
+}
+
+
 let observer = undefined;
 
 onMounted(() => {
@@ -10,7 +37,7 @@ onMounted(() => {
 
   const onElementObserved = (entries) => {
     entries.forEach(({ target, isIntersecting }) => {
-      const header = target.querySelector("h1, h2");
+      const header = target.querySelector("h1, h2, h3, h4, h5, h6");
       if (header) {
         const id = header.getAttribute("id");
         if (isIntersecting) {
@@ -40,21 +67,18 @@ onUnmounted(() => {
 })
 </script>
 
-<!-- up to h2 nested headings -->
 <template>
   <div class="text-xs">
     <div class="text-xl font-bold text-[--second-text-color] pb-2">
       Contents
     </div>
-    <ul id="toc" class="flex flex-col justify-start gap-1">
-      <li class="my-0 lg:my-0.5" v-for="heading in props.headings" v-bind:key="heading.slug">
-        <a class="transition-all" :href="'#' + heading.slug">{{ heading.text }}</a>
-        <ul class="ml-3">
-          <li class="my-0 lg:my-0.5" v-for="sub in heading.subheadings" v-bind:key="sub.slug">
-            <a class="transition-all" :href="'#' + sub.slug">{{ sub.text }}</a>
-          </li>
-        </ul>
-      </li>
+    <ul id="toc" class="overflow-x-hidden">
+      <TocEntry
+        v-for="heading in toc"
+        v-bind:heading="heading"
+        v-bind:key="heading.slug"
+      />
+
     </ul>
   </div>
 </template>
