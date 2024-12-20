@@ -1,5 +1,6 @@
 ---
 import Nav from "../components/Nav.vue";
+import "../main.css";
 import { ViewTransitions } from "astro:transitions";
 
 interface Props {
@@ -86,7 +87,6 @@ const config = {
     <meta property="article:tag" content={ config.meta.keywords.join(" ") } />
     <meta property="twitter:card" content="summary" />
 
-    <link rel="stylesheet" href="/css/main.css" />
     <style>
       .home-banner-background {
         background-image: url("/assets/bg-dark.png");

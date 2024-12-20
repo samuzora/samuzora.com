@@ -1,21 +1,24 @@
-@layer base {
-    :root {
-        --primary-color: rgb(134 121 154);
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-        --first-text-color: rgb(209 216 228 / 100%);
-        --second-text-color: rgb(178 171 192 / 100%);
-        --third-text-color: rgb(210 210 158 / 100%);
-        --fourth-text-color: rgb(129 129 129 / 100%);
+:root {
+    --primary-color: rgb(134 121 154);
+    --primary-color-transparent-60: rgb(134 121 154 / 60%);
 
-        --primary-bg: rgb(30 30 30 / 100%);
-        --primary-bg-transparent-80: rgb(35 35 35 / 80%);
-        --primary-bg-transparent-60: rgb(35 35 35 / 60%);
-        --primary-bg-transparent-40: rgb(35 35 35 / 40%);
-        --secondary-bg: rgb(70 70 70 / 100%);
-        --tertiary-bg: rgb(52 52 52 / 100%);
+    --first-text-color: rgb(209 216 228 / 100%);
+    --second-text-color: rgb(178 171 192 / 100%);
+    --third-text-color: rgb(210 210 158 / 100%);
+    --fourth-text-color: rgb(129 129 129 / 100%);
 
-        --code-bg: rgb(60 60 60 / 100%);
-    }
+    --primary-bg: rgb(30 30 30 / 100%);
+    --primary-bg-transparent-80: rgb(35 35 35 / 80%);
+    --primary-bg-transparent-60: rgb(35 35 35 / 60%);
+    --primary-bg-transparent-40: rgb(35 35 35 / 40%);
+    --secondary-bg: rgb(70 70 70 / 100%);
+    --tertiary-bg: rgb(52 52 52 / 100%);
+
+    --code-bg: rgb(45 45 45 / 100%);
 }
 
 html {
@@ -58,13 +61,13 @@ html {
 
 
 ::-moz-selection {
-  color: white;
-  background: var(--primary-color);
+    color: white;
+    background: var(--primary-color);
 }
 
 ::selection {
-  color: white;
-  background: var(--primary-color);
+    color: white;
+    background: var(--primary-color);
 }
 
 .header a:hover {
@@ -87,27 +90,28 @@ html {
 
 h1, h2, h3, h4, h5, h6 {
     color: var(--second-text-color);
+    line-height: 2rem;
     font-weight: 700 !important;
 }
 
 h1 {
-    font-size: 1.8rem !important;
+    font-size: 2.0rem !important;
 }
 
 h2 {
-    font-size: 1.6rem !important;
+    font-size: 1.8rem !important;
 }
 
 h3 {
-    font-size: 1.3rem !important;
+    font-size: 1.6rem !important;
 }
 
 h4 {
-    font-size: 1.2rem !important;
+    font-size: 1.4rem !important;
 }
 
 h5 {
-    font-size: 1.1rem !important;
+    font-size: 1.2rem !important;
 }
 
 h6 {
@@ -134,6 +138,7 @@ a:hover {
 
     h1 {
         font-size: 1.8rem;
+        padding-bottom: 0.25rem;
         border-bottom: 2px solid var(--secondary-bg);
         margin-bottom: 1.2rem;
     }
@@ -172,41 +177,85 @@ a:hover {
         font-style: italic;
     }
 
-    pre, code {
+    /**
+      * for inline, only code is used
+      * for block, figure wraps the entire pre, in which there are lines of code
+    **/
+
+    code {
         font-family: "Ubuntu Mono", monospace;
     }
 
-    pre {
-        padding: 0.5rem 1rem;
-        margin: 1rem 0;
-        background: var(--primary-bg) !important;
-        border-radius: 10px;
-        border: 1px solid var(--secondary-bg);
+    [data-rehype-pretty-code-figure] {
+        @apply my-5;
     }
 
-    code {
-        border-radius: 4px;
-        padding: 4px;
-        word-wrap: break-word;
-        font-size: 0.8rem;
-        background: var(--code-bg);
+    [data-rehype-pretty-code-title] {
+        @apply bg-zinc-700 text-zinc-200 py-2 px-3 font-semibold text-sm;
+    }
+
+    [data-rehype-pretty-code-caption] {
+        @apply bg-zinc-700 text-zinc-200 py-2 px-3 text-xs text-center;
+    }
+
+    pre {
+        overflow-x: auto;
+    }
+
+    pre {
+        background: var(--code-bg) !important;
+        @apply py-3 border border-[--secondary-bg];
     }
 
     pre code {
         padding: 0;
-        background: none;
-        counter-reset: step;
-        counter-increment: step 0;
     }
 
-    pre code .line:not(:last-child)::before {
-        content: counter(step);
-        counter-increment: step;
-        width: 1.5rem;
-        margin-right: 0.5rem;
+    pre [data-line] {
+        @apply px-4 border-l-2 border-l-transparent;
+    }
+
+    code {
+        padding: 4px;
+        font-size: 0.8rem;
+        background: var(--code-bg) !important;
+    }
+
+    code[data-line-numbers] {
+        counter-reset: line;
+    }
+
+    code[data-line-numbers] > [data-line]::before {
+        counter-increment: line;
+        content: counter(line);
+
+        /* Other styling */
         display: inline-block;
+        width: 0.50rem;
+        margin-right: 1rem;
         text-align: right;
         color: rgba(115,138,148,.4);
+    }
+
+    code[data-line-numbers-max-digits="2"] > [data-line]::before {
+        width: 1rem;
+    }
+
+    code[data-line-numbers-max-digits="3"] > [data-line]::before {
+        width: 1.50rem;
+    }
+
+    code[data-line-numbers-max-digits="4"] > [data-line]::before {
+        width: 2rem;
+    }
+
+    [data-highlighted-line] {
+        background: rgba(115,138,148,.4);
+    }
+
+    [data-highlighted-chars] {
+        @apply rounded-sm border-2 border-[--primary-color];
+        background: var(--primary-color-transparent-60);
     }
 
     a {
@@ -233,7 +282,7 @@ a:hover {
             ul li {
                 list-style: circle;
                 ul li {
-                list-style: square
+                    list-style: square
                 }
             }
         }
@@ -269,7 +318,7 @@ a:hover {
     }
 
     hr {
-        margin: 2rem 0;
+        margin: 1.5rem 0;
         border: 0;
         border-top: 2px solid var(--secondary-bg);
     }
@@ -318,8 +367,8 @@ a:hover {
         }
 
         td, th {
-          padding: 8px 16px;
-          border-left: 1px solid var(--secondary-bg);
+            padding: 8px 16px;
+            border-left: 1px solid var(--secondary-bg);
         }
 
         td:first-child, th:first-child {
