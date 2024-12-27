@@ -31,6 +31,7 @@ export default defineConfig({
         rehypePrettyCode,
         {
           theme: "catppuccin-mocha",
+          defaultLang: "plaintext",
           transformers: [
             transformerNotationDiff(),
             transformerNotationFocus(),

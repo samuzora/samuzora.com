@@ -191,6 +191,7 @@ a:hover {
     }
 
     [data-rehype-pretty-code-title] {
+        overflow-x: hidden;
         @apply bg-zinc-700 text-zinc-200 py-2 px-3 font-semibold text-sm;
     }
 
@@ -212,6 +213,7 @@ a:hover {
     }
 
     pre [data-line] {
+        line-height: 1.2rem;
         @apply px-4 border-l-2 border-l-transparent;
     }
 
@@ -219,6 +221,10 @@ a:hover {
         padding: 4px;
         font-size: 0.8rem;
         background: var(--code-bg) !important;
+    }
+
+    span[data-rehype-pretty-code-figure] {
+        overflow-wrap: break-word;
     }
 
     code[data-line-numbers] {
