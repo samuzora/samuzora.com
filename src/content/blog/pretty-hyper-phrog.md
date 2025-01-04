@@ -26,7 +26,7 @@ of LFI to get the complete source.
 
 Here's a sample "password", our attack vector:
 
-```base64
+```
 Tzo0OiJVc2VyIjozOntzOjc6InBpY3R1cmUiO3M6MTY6InN0YXRpYy9waHJvZy5naWYiO3M6ODoidXN lcm5hbWUiO3M6ODoic2FtdXpvcmEiO3M6NDoidXVpZCI7czoxMzoiNjNhNDYyNTViNGM5YiI7fQ==
 ```
 
