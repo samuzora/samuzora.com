@@ -69,10 +69,7 @@ onUnmounted(() => {
 
 <template>
   <div class="text-xs">
-    <div class="text-xl font-bold text-[--second-text-color] pb-2">
-      Contents
-    </div>
-    <ul id="toc" class="overflow-x-hidden">
+    <ul id="toc">
       <TocEntry
         v-for="heading in toc"
         v-bind:heading="heading"

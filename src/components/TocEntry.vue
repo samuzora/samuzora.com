@@ -4,9 +4,9 @@ const props = defineProps(["heading"])
 
 <template>
   <li class="list-inside py-0.5" v-bind:key="heading.slug">
-    <a class="transition-all" :href="'#' + heading.slug">{{ heading.text }}</a>
+    <a class="transition-all break-words" :href="'#' + heading.slug">{{ heading.text }}</a>
   </li>
-  <ul class="translate-x-3">
+  <ul class="ml-3">
     <TocEntry 
       v-for="subheading in heading.subheadings" 
       v-bind:heading="subheading" 

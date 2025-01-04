@@ -128,6 +128,13 @@ a:hover {
     color: var(--primary-color);
 }
 
+/* SimpleScrollbar styling */
+.ss-scroll {
+    opacity: 1 !important;
+    background: rgba(255, 255, 255, 0.3) !important;
+    width: 6px !important;
+}
+
 /* markdown styling */
 
 .markdown-body {
@@ -141,26 +148,32 @@ a:hover {
         padding-bottom: 0.25rem;
         border-bottom: 2px solid var(--secondary-bg);
         margin-bottom: 1.2rem;
+        margin-top: 2rem;
     }
 
     h2 {
         font-size: 1.6rem;
+        margin-top: 1.6rem;
     }
 
     h3 {
         font-size: 1.3rem;
+        margin-top: 1rem;
     }
 
     h4 {
         font-size: 1.2rem;
+        margin-top: 0.8rem;
     }
 
     h5 {
         font-size: 1.1rem;
+        margin-top: 0.5rem;
     }
 
     h6 {
         font-size: 1rem;
+        margin-top: 0.3rem;
     }
 
     p {
@@ -219,7 +232,7 @@ a:hover {
 
     code {
         padding: 4px;
-        font-size: 0.8rem;
+        font-size: 0.8em;
         background: var(--code-bg) !important;
     }
 

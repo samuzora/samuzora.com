@@ -52,38 +52,35 @@ const { Content, headings, remarkPluginFrontmatter } = await post.render();
 <Layout title={post.data.title}>
   <div class="relative flex justify-center pt-[125px] px-6 md:px-32 xl:px-16 mx-auto">
     {
+    // ToC for lg and above - appears on the side of content
     headings.length > 0 && 
-    <div class="sticky lg:w-[125px] xl:w-[200px] self-start hidden lg:flex mr-10 top-[125px] items-start gap-5 h-[calc(100vh-200px)] overflow-y-auto">
-      <!-- <button data-toc-button class="fas fa-indent text-lg px-3 aspect-square bg-[--primary-bg-transparent-80] backdrop-blur border border-[--secondary-bg] rounded-lg hover:text-[--primary-bg] hover:bg-[--primary-color] transition-all"> -->
-      <!-- </button> -->
-      <div data-toc>
-        <Toc client:load headings={headings} />
+    <div class="sticky lg:w-[125px] xl:w-[200px] self-start hidden lg:block mr-10 top-[125px] h-[calc(100vh-200px)] overflow-y-auto" ss-container>
+      <div class="text-xl font-bold text-[--second-text-color] py-2">
+        Contents
       </div>
+      <Toc client:load headings={headings} />
     </div>
     }
     <div data-main-content class="flex flex-col gap-10 min-w-[300px] md:w-[748px] lg:max-w-[904px] xl:max-w-[1300px]">
-      <!-- <Card class="!bg-[--primary-bg] lg:hidden"> -->
-      <!--   <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} /> -->
-      <!-- </Card> -->
       <div class="flex flex-col gap-2 relative">
-        <!-- { -->
-        <!-- nestedHeadings.length > 0 &&  -->
-        <!-- <Card class="!bg-[--primary-bg] rounded-none md:rounded-lg -mx-6 lg:hidden max-h-64 overflow-y-auto"> -->
-        <!--   <Toc client:load headings={nestedHeadings} /> -->
-        <!-- </Card> -->
-        <!-- } -->
         <Card class="!bg-[--primary-bg] items-center rounded-none md:rounded-lg -mx-6 md:mx-0 p-10">
-          <!-- <div class="hidden lg:block pb-10"> -->
-          <!--   <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} /> -->
-          <!-- </div> -->
           <div class="pb-10">
             <PostHeader client:load post={post} remarkPluginFrontmatter={remarkPluginFrontmatter} />
           </div>
           {
+            // ToC for xs-md - appears between PostHeader and body
             headings.length > 0 &&
-            <Card class="lg:hidden mb-5">
-              <Toc client:load headings={headings} />
-            </Card>
+            <details open class="lg:hidden group p-5 mb-5 border border-[--secondary-bg] rounded-lg">
+              <summary class="flex justify-between">
+                <div class="text-xl font-bold text-[--second-text-color] py-2">
+                  Contents
+                </div>
+              <i class="transition-all my-auto text-sm text-white fa-regular fa-chevron-down group-open:rotate-180"></i>
+              </summary>
+              <div ss-container class="h-[400px]">
+                <Toc client:load headings={headings} />
+              </div>
+            </details>
           }
           <div class="markdown-body">
             <Content />
@@ -126,14 +123,3 @@ const { Content, headings, remarkPluginFrontmatter } = await post.render();
     </div>
   </div>
 </Layout>
-
-<script>
-  // const button = document.querySelector("[data-toc-button]");
-  // const toc = document.querySelector("[data-toc]");
-  // const mainContent = document.querySelector("[data-main-content]");
-  //
-  // button.addEventListener("click", () => {
-  //   toc.classList.toggle("hidden");
-  //   mainContent.classList.toggle("!w-full");
-  // });
-</script>
