@@ -27,7 +27,7 @@ const latestPosts: any = postsByYear[selectedYear];
       <h1>Latest posts</h1>
     </div>
     <div class="mx-10 w-auto md:mx-auto md:w-[668px] lg:w-[924px]">
-      <div class="flex justify-start gap-3 pb-7 text-lg">
+      <div class="flex justify-start gap-3 py-7 text-lg">
         {Object.keys(postsByYear).map(year => (
         <a data-is-selected={year === selectedYear} href={"/browse/" + year} class="select-year p-2 rounded-lg border border-[--secondary-bg]">{year}</a>
         ))}
