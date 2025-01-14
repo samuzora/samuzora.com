@@ -117,7 +117,7 @@ other FILE features to get RCE?
 
 The next few posts will be my notes while exploring some previously discovered houses.
 
-- <a href="/fsop/house-of-apple">House of Apple</a>
+- <a href="/posts/fsop/house-of-apple">House of Apple</a>
 - House of Kiwi
 - House of Banana
 - House of Emma
