@@ -8,17 +8,21 @@ import socials from "@data/socials.yml";
 ---
 
 <Layout title="samuzora's blog">
-  <div class="h-screen flex justify-center items-center transition-fade relative">
-    <div class="flex flex-col items-center gap-2">
-      <div class="title">
+  <div class="h-[100svh] flex mb-14 justify-center items-center transition-fade relative">
+    <div>
+      <div class="title text-center mb-2">
         samuzora.com
       </div>
-      <!-- styling in main.css not here because of astro compilation messing up the classes -->
-      <p class="typing">
-        <i id="subtitle" />
-      </p>
+      <div>
+        <p class="typing">
+          <i id="subtitle" />
+        </p>
+      </div>
     </div>
-    <div class="absolute bottom-10 w-full h-14 px-5 md:px-20 flex justify-end md:justify-between text-[--first-text-color] text-lg">
+    <div class="flex flex-col items-center gap-2">
+      <!-- styling in main.css not here because of astro compilation messing up the classes -->
+    </div>
+    <div class="absolute bottom-5 md:bottom-10 w-full h-14 px-5 md:px-20 flex justify-end md:justify-between text-[--first-text-color] text-lg">
       <!-- TODO: define the onclick event -->
       <div id="scrolldown" class="hidden md:flex rounded-full h-full aspect-square p-3 justify-center items-center bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg] cursor-pointer hover:border-[3px] hover:pt-5 transition-all">
         <i class="fa-regular fa-arrow-down"></i>
@@ -26,7 +30,7 @@ import socials from "@data/socials.yml";
 
       <div class="rounded-full h-full p-5 flex justify-around items-center gap-6 bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg]">
         {
-          socials.map((social: any) => <a class={social.icon} href={social.link}></a>)
+        socials.map((social: any) => <a class={social.icon} href={social.link}></a>)
         }
       </div>
     </div>
@@ -76,38 +80,37 @@ import socials from "@data/socials.yml";
 
       <div class="w-full z-10">
         <h1 class="home-h1 mb-0 w-full">CTFs</h1>
-          <div class="hide-scrollbar py-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap">
+        <div class="hide-scrollbar py-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap">
           {Object.entries(ctfs).map(([year, events]: [any, any]) => (
-            <Card class="align-top snap-center overflow-y-hidden inline-block mx-2 w-10/12 md:w-11/12">
-              <h2 class="home-h2">{year}</h2>
-              <div class="timeline pb-2">
-                {events.map((event: any) => (
-                <div class="event top-0 bottom-0 left-5" data-date={event.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}>
-                  {
-                    event.link
+          <Card class="align-top snap-center overflow-y-hidden inline-block mx-2 w-10/12 md:w-11/12">
+            <h2 class="home-h2">{year}</h2>
+            <div class="timeline pb-2">
+              {events.map((event: any) => (
+              <div class="event top-0 bottom-0 left-5" data-date={event.date.toLocaleDateString("en-US", { month: "short", day: "numeric" })}>
+                {
+                event.link
                       ? <a href={event.link}>
-                          {event.name}
-                          <i class="ml-1 fa-regular fa-arrow-up-right-from-square"></i>
-                        </a>
-                      : event.name
-                  }
-                  <div class={"rank " + event.type}>
-                    {event.rank}
-                  </div>
+                  {event.name}
+                  <i class="ml-1 fa-regular fa-arrow-up-right-from-square"></i>
+                </a>
+                : event.name
+                }
+                <div class={"rank " + event.type}>
+                  {event.rank}
                 </div>
-                ))}
               </div>
-            </Card>
-            ))}
-          </div>
-          <div class="hidden sm:flex justify-center mt-3 h-10 gap-3">
-            <button data-left-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
-              <i class="fa-regular fa-angle-left"></i>
-            </button>
-            <button data-right-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
-              <i class="fa-regular fa-angle-right"></i>
-            </button>
-          </div>
+              ))}
+            </div>
+          </Card>
+          ))}
+        </div>
+        <div class="hidden sm:flex justify-center mt-3 h-10 gap-3">
+          <button data-left-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
+            <i class="fa-regular fa-angle-left"></i>
+          </button>
+          <button data-right-button class="hidden h-full sm:inline-block rounded-lg w-2/12 bg-[--primary-bg-transparent-60] hover:bg-[--primary-color] border border-[--secondary-bg] text-[--second-text-color] hover:text-[--primary-bg] transition-all">
+            <i class="fa-regular fa-angle-right"></i>
+          </button>
         </div>
       </div>
     </div>
@@ -152,17 +155,17 @@ document.addEventListener("astro:page-load", () => {
     }
 
     const sentenceList = [
-        "learning pwn, web and smart contract",
-        'p.sendline(b"A"*0x1000)',
-        "nvim4life",
-        "b *main+429",
-        "ctf writeups",
-        "cat ./flag.txt",
-        "x/50gx 0xfff8881012996000",
-        "nvim solve.py",
-        "p.interactive()",
-        "' or 1=1 -- ",
-        "b'\\xd0\\x9e\\xdb\\xf7\\xff\\x7f\\x00\\x00'",
+      "learning pwn, web and smart contract",
+      'p.sendline(b"A"*0x1000)',
+      "nvim4life",
+      "b *main+429",
+      "ctf writeups",
+      "cat ./flag.txt",
+      "x/50gx 0xfff8881012996000",
+      "nvim solve.py",
+      "p.interactive()",
+      "' or 1=1 -- ",
+      "b'\\xd0\\x9e\\xdb\\xf7\\xff\\x7f\\x00\\x00'",
     ];
     if (document.getElementById(id)) {
       // @ts-ignore
@@ -184,7 +187,7 @@ document.addEventListener("astro:page-load", () => {
   const scrolldown = document.getElementById("scrolldown");
   if (scrolldown) {
     scrolldown.addEventListener("click", () => {
-     // works because it just so happens that scrolldown is the correct height due to header
+      // works because it just so happens that scrolldown is the correct height due to header
       scrolldown.scrollIntoView({behavior: "smooth"});
     });
   }
@@ -211,110 +214,110 @@ document.addEventListener("astro:page-load", () => {
 </script>
 
 <style>
-  .title {
-    color: var(--third-text-color);
-    font-family: "Chillax", sans-serif;
-    font-size: 45px;
-  }
+.title {
+  color: var(--third-text-color);
+  font-family: "Chillax", sans-serif;
+  font-size: 45px;
+}
 
-  .profile {
-    font-family: "Chillax", sans-serif;
-  }
+.profile {
+  font-family: "Chillax", sans-serif;
+}
 
-  .avatar {
-    outline: solid 2px var(--secondary-bg);
-  }
+.avatar {
+  outline: solid 2px var(--secondary-bg);
+}
 
-  .home-h1 {
-    font-family: "Chillax", sans-serif;
-    font-weight: 500 !important;
-    border-bottom: none;
-    margin-bottom: 16px !important;
-  }
+.home-h1 {
+  font-family: "Chillax", sans-serif;
+  font-weight: 500 !important;
+  border-bottom: none;
+  margin-bottom: 16px !important;
+}
 
-  .home-h2 {
-    font-family: "Chillax", sans-serif;
-    font-size: 24px;
-    font-weight: 400 !important;
-    border-bottom: none;
-  }
+.home-h2 {
+  font-family: "Chillax", sans-serif;
+  font-size: 24px;
+  font-weight: 400 !important;
+  border-bottom: none;
+}
 
-  .timeline {
-    line-height: 1.5;
-    border-radius: 4px;
-  }
+.timeline {
+  line-height: 1.5;
+  border-radius: 4px;
+}
 
+.event {
+  position: relative;
+  padding: 3rem 2rem 1rem;
+  border-left: 2px solid var(--primary-color);
+  font-size: 1.6rem;
+  font-weight: 900;
+}
+
+.event::before {
+  display: block;
+  content: attr(data-date);
+  position: absolute;
+  top: 1rem;
+  left: 2rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--second-text-color);
+}
+
+.event::after {
+  display: block;
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  top: calc(1rem + 5px);
+  left: -6px;
+  border-radius: 10px;
+  border: 2px solid var(--primary-color);
+  background: var(--primary-bg);
+}
+
+@media (max-width: 640px) {
   .event {
-    position: relative;
-    padding: 3rem 2rem 1rem;
-    border-left: 2px solid var(--primary-color);
-    font-size: 1.6rem;
-    font-weight: 900;
+    font-size: 1rem;
+    padding: 2.5rem 1rem 1rem;
   }
 
   .event::before {
-    display: block;
-    content: attr(data-date);
-    position: absolute;
-    top: 1rem;
-    left: 2rem;
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--second-text-color);
+    left: 1rem;
   }
+}
 
-  .event::after {
-    display: block;
-    content: "";
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    top: calc(1rem + 5px);
-    left: -6px;
-    border-radius: 10px;
-    border: 2px solid var(--primary-color);
-    background: var(--primary-bg);
-  }
+.rank {
+  font-size: 1rem;
+  font-weight: 300;
+}
 
-  @media (max-width: 640px) {
-    .event {
-      font-size: 1rem;
-      padding: 2.5rem 1rem 1rem;
-    }
-
-    .event::before {
-      left: 1rem;
-    }
-  }
-
+@media (max-width: 640px) {
   .rank {
-    font-size: 1rem;
-    font-weight: 300;
+    font-size: 0.7rem;
   }
+}
 
-  @media (max-width: 640px) {
-    .rank {
-      font-size: 0.7rem;
-    }
-  }
+.ctf-first-place {
+  color: gold;
+}
 
-  .ctf-first-place {
-    color: gold;
-  }
+.ctf-second-place {
+  color: antiquewhite;
+}
 
-  .ctf-second-place {
-    color: antiquewhite;
-  }
+.ctf-third-place {
+  color: chocolate;
+}
 
-  .ctf-third-place {
-    color: chocolate;
-  }
-
-  .hide-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .hide-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 </style>

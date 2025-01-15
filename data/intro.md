@@ -1,5 +1,3 @@
-# whoami
-
 Hi!! Welcome to my blog~ You can find my CTF writeups and other
 cybersecurity-related stuff here!
 
@@ -17,5 +15,3 @@ v8 pwn.
 Besides playing, I've also organized HACK@AC 2022 and 2024, and set challenges
 for some other CTFs. Feel free to PM me on DIscord if you'd like me to set some
 pwn challenges!
-
-<!-- TODO: test and style all markdown features -->
