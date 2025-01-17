@@ -9,7 +9,7 @@ const props = defineProps(["post", "remarkPluginFrontmatter"]);
   <div>
     <div class="flex gap-3">
       <div>
-        <img class="rounded-xl aspect-square w-14 border border-[--secondary-bg]" src="/assets/samuzora.png"
+        <img class="rounded-xl aspect-square w-14 border border-[--secondary-bg]" src="/assets/samuzora.webp"
           alt="author" />
       </div>
       <div class="flex flex-col justify-around">
