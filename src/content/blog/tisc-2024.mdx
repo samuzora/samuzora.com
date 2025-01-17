@@ -2,12 +2,15 @@
 title: TISC 2024
 date: 2024-10-01
 category: Writeups
+excerpt: Writeups for TISC 2024
 tags:
     - pwn
     - web
     - forens
     - RE
 ---
+
+import Challenge from "@components/Challenge.vue";
 
 TISC 2024 ran from 13th to 29th September this year, right after my prelims
 ended on the 13th. (I actually went cycling on the afternoon of 13th and got
@@ -26,43 +29,44 @@ In an act of heroic defiance, I thwarted fate and did not get 1st place, solving
 Here are my writeups for the 12 challenges in the CTF. I went the RE route
 instead of web/cloud this year, and it was pretty fun so I don't regret it.
 
-(I wrote some of these writeups in a hurry because of my upcoming IB finals that
-I need to study for - I'll update them after my finals are over)
-
 # Navigating the Digital Labyrinth (Level 01)
 
-> The dust has settled since we won the epic battle against PALINDROME one year ago.
->
-> Peace returned to cyberspace, but it was short-lived. Two months ago, screens
-> turned deathly blue, and the base went dark. When power returned, a mysterious
-> entity glitched to life on our monitors. No one knows where it came from or
-> what it plans to do.
-> 
-> Amidst the clandestine realm of cyber warfare, intelligence sources have
-> uncovered the presence of a formidable adversary, Vivoxanderith—a digital
-> specter whose footprint spans the darkest corners of the internet. As a
-> skilled cyber operative, you are entrusted with the critical mission of
-> investigating this elusive figure and their network to end their reign of
-> disruption.
-> 
-> Recent breakthroughs have unveiled Vivoxanderith's online persona: vi_vox223.
-> This revelation marks a pivotal advancement in our pursuit, offering a
-> significant lead towards identifying and neutralizing this threat.
-> 
-> Our mission now requires a meticulous investigation into vi_vox223's
-> activities and connections within the cyber underworld. Identifying and
-> tracking Vivoxanderith brings us one crucial step closer to uncovering the
-> source of the attack and restoring stability to our systems. It is up to you,
-> agent!
+<Challenge title="Navigating the Digital Labyrinth" solves={979} flag="TISC{OS1N7_Cyb3r_InV35t1g4t0r_uAhf3n}">
+
+The dust has settled since we won the epic battle against PALINDROME one year ago.
+
+Peace returned to cyberspace, but it was short-lived. Two months ago, screens
+turned deathly blue, and the base went dark. When power returned, a mysterious
+entity glitched to life on our monitors. No one knows where it came from or
+what it plans to do.
+
+Amidst the clandestine realm of cyber warfare, intelligence sources have
+uncovered the presence of a formidable adversary, Vivoxanderith—a digital
+specter whose footprint spans the darkest corners of the internet. As a
+skilled cyber operative, you are entrusted with the critical mission of
+investigating this elusive figure and their network to end their reign of
+disruption.
+
+Recent breakthroughs have unveiled Vivoxanderith's online persona: vi_vox223.
+This revelation marks a pivotal advancement in our pursuit, offering a
+significant lead towards identifying and neutralizing this threat.
+
+Our mission now requires a meticulous investigation into vi_vox223's
+activities and connections within the cyber underworld. Identifying and
+tracking Vivoxanderith brings us one crucial step closer to uncovering the
+source of the attack and restoring stability to our systems. It is up to you,
+agent!
+
+</Challenge>
 
 Searching for the mysterious `vi_vox223` using
-[Sherlock](https://github.com/sherlock-project/sherlock), we see an [Instagram
-profile with the same name](https://www.instagram.com/vi_vox223/). Under his
-stories, this elusive figure has created a Discord bot with ID
+[Sherlock](https://github.com/sherlock-project/sherlock), we see an
+[Instagram profile](https://www.instagram.com/vi_vox223/) with the same name.
+Under his stories, this elusive figure has created a Discord bot with ID
 1284197383864979486. We have the exclusive opportunity to grace our server with
 the bot's presence using this link:
 
-<https://discord.com/oauth2/authorize?client_id=1284197383864979486&permissions=0&scope=bot%20applications.commands>
+https://discord.com/oauth2/authorize?client_id=1284197383864979486&permissions=0&scope=bot%20applications.commands
 
 We need to have the elusive D0PP3L64N63R role to unlock the hidden menu. After
 that, we can access the filesystem and download the `Update_030624.eml` file.
@@ -108,17 +112,21 @@ We can also visit the Linkedin provided to access the secret agent under the
 guise of a Telegram bot with username @TBL_DictioNaryBot. Sending the identified
 location will confirm our identity and give us the flag.
 
-`TISC{OS1N7_Cyb3r_InV35t1g4t0r_uAhf3n}`
+``
 
 # Language, Labyrinth and (Graphics)Magick (Level 02)
 
-> Good job on identifying the source of the attack! We are one step closer to
-> identifying the mysterious entity, but there's still much we do not know.
->
-> Beyond Discord and Uber H3, seems like our enemies are super excited about AI
-> and using it for image transformation. Your fellow agents have managed to gain
-> access to their image transformation app. Is there anyyy chance we could find
-> some vulnerabilities to identify the secrets they are hiding?
+<Challenge title="Language, Labyrinth and (Graphics)Magick" solves={450} flag="TISC{h3re_1$_y0uR_pr0c3s5eD_im4g3_&m0Re}">
+
+Good job on identifying the source of the attack! We are one step closer to
+identifying the mysterious entity, but there's still much we do not know.
+
+Beyond Discord and Uber H3, seems like our enemies are super excited about AI
+and using it for image transformation. Your fellow agents have managed to gain
+access to their image transformation app. Is there anyyy chance we could find
+some vulnerabilities to identify the secrets they are hiding?
+
+</Challenge>
 
 In this level, PALINDROME employs the power of LLMs to edit photographic
 evidences of their crimes. we're provided with 1 web interface (3, actually, cos
@@ -131,7 +139,6 @@ the LLM to generate our own GraphicsMagick commands like so:
 ```bash
 gm convert "input" "output"
 ```
-
 
 and the LLM will replace the input and output filenames accordingly. Neat!
 
@@ -147,17 +154,19 @@ gm convert "input" -comment "$(cat /**/flag*.txt)" "output"
 Uploading any image and entering this command, then downloading the image and
 running `strings{:bash}` on it, will give us the flag.
 
-`TISC{h3re_1$_y0uR_pr0c3s5eD_im4g3_&m0Re}`
-
 # Digging Up History (Level 03)
 
-> Ah, who exactly is behind the attacks? If only our enemies left more images on
-> their image transformation server. We are one step closer, but there is still
-> so much to uncover...
-> 
-> A disc image file was recovered from them! We have heard that they have a
-> history of hiding sensitive data through file hosting sites... Can you help us
-> determine what they might be hiding this time?
+<Challenge title="Digging Up History" solves={341} flag="TISC{tru3_1nt3rn3t_h1st0r13_8445632pq78dfn3s}">
+
+Ah, who exactly is behind the attacks? If only our enemies left more images on
+their image transformation server. We are one step closer, but there is still
+so much to uncover...
+
+A disc image file was recovered from them! We have heard that they have a
+history of hiding sensitive data through file hosting sites... Can you help us
+determine what they might be hiding this time?
+
+</Challenge>
 
 Looks like we got our hands on one of PALINDROME's agent's disk images... We're
 provided with a huge 1.3GB `csitfanUPDATED0509.ad1` file. We can use FTK Imager
@@ -220,19 +229,21 @@ contents of this table, we see the following row:
 
 The downloaded file contains the Base64-encoded flag.
 
-`TISC{tru3_1nt3rn3t_h1st0r13_8445632pq78dfn3s}`
-
 # AlligatorPay (Level 04)
 
-> In the dark corners of the internet, whispers of an elite group of hackers
-> aiding our enemies have surfaced. The word on the street is that a good number
-> of members from the elite group happens to be part of an exclusive member tier
-> within AlligatorPay (agpay), a popular payment service.
->
-> Your task is to find a way to join this exclusive member tier within
-> AlligatorPay and give us intel on future cyberattacks. AlligatorPay recently
-> launched an online balance checker for their payment cards. We heard it's
-> still in beta, so maybe you might find something useful.
+<Challenge title="AlligatorPay" solves={304} flag="TISC{533_Y4_L4T3R_4LL1G4T0R_a8515a1f7004dbf7d5f704b7305cdc5d}">
+
+In the dark corners of the internet, whispers of an elite group of hackers
+aiding our enemies have surfaced. The word on the street is that a good number
+of members from the elite group happens to be part of an exclusive member tier
+within AlligatorPay (agpay), a popular payment service.
+
+Your task is to find a way to join this exclusive member tier within
+AlligatorPay and give us intel on future cyberattacks. AlligatorPay recently
+launched an online balance checker for their payment cards. We heard it's
+still in beta, so maybe you might find something useful.
+
+</Challenge>
 
 In this level, PALINDROME is using a service to conduct their shady money
 laundering schemes where we can upload an "AGPAY" card. The card validation is
@@ -321,30 +332,36 @@ if __name__ == "__main__":
 
 After generating our card and uploading it, we get our flag.
 
-`TISC{533_Y4_L4T3R_4LL1G4T0R_a8515a1f7004dbf7d5f704b7305cdc5d}`
-
 # Hardware isn't that Hard! (Level 05)
 
-> Shucks... it seems like our enemies are making their own silicon chips??!?
-> They have decided to make their own source of trust, a TPM (Trusted Platform
-> Module) or I guess their best attempt at it.
-> 
-> Your fellow agent smuggled one out for us to reverse engineer. Don't ask us
-> how we did it, we just did it, it was hard ...
-> 
-> All we know so far is that their TPM connects to other devices using the i2c
-> bus and does some security stuff inside. Agent! Your mission, should you
-> choose to accept it, is to get us unparalleled intel by finding their TPM's
-> weakness and exfiltrating its secrets.
-> 
-> You will be provided with the following compressed flash dump:
-> - MD5 (flash_dump.bin.xz) = fdff2dbda38f694111ad744061ca2f8a
-> 
-> Flash was dumped from the device using the command: esptool.py -p
-> /dev/REDACTED -b 921600 read_flash 0 0x400000 flash_dump.bin
-> 
-> You can perform your attack on a live TPM module via the i2c implant device
-> hosted behind enemy lines: `nc chals.tisc24.ctf.sg 61622`
+<Challenge 
+  title="Hardware isn't that Hard!" 
+  solves={89} 
+  flag="TISC{hwfuninnit}" 
+  files={[{name: "flash_dump_bin.xz", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024/flash_dump.bin.xz"}]}>
+
+Shucks... it seems like our enemies are making their own silicon chips??!?
+They have decided to make their own source of trust, a TPM (Trusted Platform
+Module) or I guess their best attempt at it.
+
+Your fellow agent smuggled one out for us to reverse engineer. Don't ask us
+how we did it, we just did it, it was hard ...
+
+All we know so far is that their TPM connects to other devices using the i2c
+bus and does some security stuff inside. Agent! Your mission, should you
+choose to accept it, is to get us unparalleled intel by finding their TPM's
+weakness and exfiltrating its secrets.
+
+You will be provided with the following compressed flash dump: - 
+MD5 (flash_dump.bin.xz) = fdff2dbda38f694111ad744061ca2f8a
+
+Flash was dumped from the device using the command: esptool.py -p
+/dev/REDACTED -b 921600 read_flash 0 0x400000 flash_dump.bin
+
+You can perform your attack on a live TPM module via the i2c implant device
+hosted behind enemy lines: `nc chals.tisc24.ctf.sg 61622`
+
+</Challenge>
 
 After their failure at implementing a secure credit transfer scheme for their
 funds, you'd think PALINDROME has learnt from their mistakes and would stop
@@ -352,7 +369,7 @@ implementing their own systems... but apparently not - now they're rolling their
 own secure communications channel as well. We're provided with a flash dump of
 the esp32 chip. The flash dump contains several partitions, including the app
 that we're interested in. We can view these partitions using
-<https://github.com/tenable/esp32_image_parser>.
+https://github.com/tenable/esp32_image_parser.
 
 ```
 $ : esp32_image_parser.py show_partitions flash_dump.bin
@@ -637,24 +654,30 @@ for i in range(5, len(output)):
 print("".join([chr(i) for i in flag]))
 ```
 
-`TISC{hwfuninnit}`
-
 # RE Path - Noncevigator (Level 06)
 
-> I guess their Trusted Platform Modules were not so trusted afterall. What
-> about blockchain? Blockchain is secure by design, right?
-> 
-> It seems like our enemies may have hidden some of their treasures somewhere
-> along in our little island, all secured by this blockchain technology.
-> 
-> We have heard rumours that to access the treasure, you must navigate to the
-> correct location and possess the correct value of the "number used only once".
-> This unique code is essential for unlocking the fortified gate guarding the
-> treasure!
-> 
-> Ensure your wallet is sufficiently funded for travel and any potential
-> challenges you may encounter. Your journey begins now. It's your mission now -
-> crack the code and see what treasures they are hiding!
+<Challenge 
+  title="Noncevigator" 
+  solves={27} 
+  flag="TISC{ReeN7r4NCY_4ND_deTerminI5TIc_aDDReSs}"
+  files={[{name: "Noncevigator.sol", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024/Noncevigator.sol"}]}>
+
+I guess their Trusted Platform Modules were not so trusted afterall. What
+about blockchain? Blockchain is secure by design, right?
+
+It seems like our enemies may have hidden some of their treasures somewhere
+along in our little island, all secured by this blockchain technology.
+
+We have heard rumours that to access the treasure, you must navigate to the
+correct location and possess the correct value of the "number used only once".
+This unique code is essential for unlocking the fortified gate guarding the
+treasure!
+
+Ensure your wallet is sufficiently funded for travel and any potential
+challenges you may encounter. Your journey begins now. It's your mission now -
+crack the code and see what treasures they are hiding!
+
+</Challenge>
 
 Finally, PALINDROME is outsourcing their technology to something well-known and
 trusted - blockchain! Despite being on the RE path, this was strangely not an RE
@@ -764,7 +787,6 @@ import { Noncevigator, TravelFundvault } from "./Noncevigator.sol";
 // 5. from wallet, call startUnlockingGate("pulauSemakau")
 
 // 46
-// TISC{ReeN7r4NCY_4ND_deTerminI5TIc_aDDReSs}
 
 contract Exploit {
 Noncevigator public noncevigator;
@@ -814,15 +836,19 @@ return true;
 
 # RE Path - Baby Flagchecker (Level 07)
 
-> You've come so far, brave agents! Let us continue our mission to identify our
-> threats, and retrieve the crucial information that they are hiding from the
-> world.
-> 
-> While scanning their network, your fellow agents chanced upon a tool used by
-> the adversary that checks for the validity of a secret passphrase.
-> 
-> We know that they use this phrase for establishing communications between one
-> another, but the one we have is way outdated... It's time for an update.
+<Challenge title="Baby Flagchecker" solves={17} flag="TISC{g@s_Ga5_94S}">
+
+You've come so far, brave agents! Let us continue our mission to identify our
+threats, and retrieve the crucial information that they are hiding from the
+world.
+
+While scanning their network, your fellow agents chanced upon a tool used by
+the adversary that checks for the validity of a secret passphrase.
+
+We know that they use this phrase for establishing communications between one
+another, but the one we have is way outdated... It's time for an update.
+
+</Challenge>
 
 This level had a bit of difficult RE, but it was mostly a blockchain chall
 too. Seems like PALINDROME really likes blockchain...
@@ -857,7 +883,7 @@ def call_check_password(setup_contract, password):
 ```
 
 `setup_contract_bytecode` and `adminpanel_contract_bytecode` are the partial
-bytecodes of the respective contracts. I used <https://ethervm.io/decompile> to
+bytecodes of the respective contracts. I used https://ethervm.io/decompile to
 decompile the bytecode into semi-readable Solidity code, but it wasn't really
 helpful. In the end, I painfully parsed the assembly step-by-step to figure
 out the stack state and stuff.
@@ -943,19 +969,25 @@ This is the payload I used:
 {_________}{{response_data}}
 ```
 
-`TISC{g@s_Ga5_94S}`
-
 # Wallfacer (Level 08)
 
-> Breaking news! We've managed to seize an app from their device.
-> 
-> It seems to be an app that stores user data, but doesn’t seem to do much other
-> than that... The other agent who recovered this said he heard them say
-> something about parts of the app are only loaded during runtime, hiding
-> crucial details.
-> 
-> It's up to you now! Can you break through the walls and unveil the hidden
-> secrets within this app?
+<Challenge 
+  title="Wallfacer" 
+  solves={33} 
+  flag="TISC{1_4m_y0ur_w4llbr34k3r_!i#Leb}"
+  files={[{name: "wallfacer-x86_64.apk", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024/wallfacer-x86_64.apk"}]}>
+
+Breaking news! We've managed to seize an app from their device.
+
+It seems to be an app that stores user data, but doesn’t seem to do much other
+than that... The other agent who recovered this said he heard them say
+something about parts of the app are only loaded during runtime, hiding
+crucial details.
+
+It's up to you now! Can you break through the walls and unveil the hidden
+secrets within this app?
+
+</Challenge>
 
 Is PALINDROME secretly the Earth-Trisolaris Organization??
 
@@ -1237,18 +1269,24 @@ Log.i.overload("java.lang.String", "java.lang.String").implementation = function
 After that, we pass all the checks, it spits out the key and IV, and we can put
 it in the app to get the flag:
 
-`TISC{1_4m_y0ur_w4llbr34k3r_!i#Leb}`
-
 # Imphash (Level 09)
 
-> Almost there agent, we might have a chance to gain access into the enemy's
-> systems again!! We are so close.
-> 
-> But, it seems like they've developed a robust anti-malware service that's
-> thwarting all attempts to breach their systems!
-> 
-> We've found this import hashing plugin which is a key component of their
-> malware analysis pipeline. Agent, can you find a way around it?
+<Challenge 
+  title="Imphash" 
+  solves={17} 
+  flag="TISC{pwn1n6_w17h_w1nd0w5_p3}"
+  files={[{name: "imphash.zip", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024/imphash.zip"}]}>
+
+Almost there agent, we might have a chance to gain access into the enemy's
+systems again!! We are so close.
+
+But, it seems like they've developed a robust anti-malware service that's
+thwarting all attempts to breach their systems!
+
+We've found this import hashing plugin which is a key component of their
+malware analysis pipeline. Agent, can you find a way around it?
+
+</Challenge>
 
 In this challenge, PALINDROME is using a radare2 plugin to output a hash of all
 the imports of a binary (this is a common malware analysis technique). It takes
@@ -1350,19 +1388,21 @@ echo                                 ;  cp /app/flag.txt out;
 The whitespace is so our hash doesn't interfere with the payload. After parsing
 this file, remote returns us the flag:
 
-`TISC{pwn1n6_w17h_w1nd0w5_p3}`
-
 # Diffuse (Level 10)
 
-> !!! We've found a weird device with a timer counting down! Ccould..it...
-> be...a bomb....?? Your fellow agents found some access into the engineer's
-> machine, will you be able to find some clues and diffuse it before it's too
-> late?
-> 
-> For details on your instance, talk to @DiffuseInstanceBot on Telegram.
-> 
-> Note: Instances may be refreshed periodically. Remember to save your work
-> outside of the instance!
+<Challenge title="Diffuse" solves={14} flag="TISC{h3y_Lo0k_1_m4d3_My_0wn_h4rdw4r3_t0k3n!}">
+
+!!! We've found a weird device with a timer counting down! Ccould..it...
+be...a bomb....?? Your fellow agents found some access into the engineer's
+machine, will you be able to find some clues and diffuse it before it's too
+late?
+
+For details on your instance, talk to @DiffuseInstanceBot on Telegram.
+
+Note: Instances may be refreshed periodically. Remember to save your work
+outside of the instance!
+
+</Challenge>
 
 We've gained access to PALINDROME's bomb expert's computer. Time is of the
 essence - we need to defuse it quickly! PALINDROME too knows this, and decided
@@ -1380,7 +1420,7 @@ which we don't have access to. After trying some commands, we might realize that
 there's a web server running on the machine on port 80. We can curl this server
 and observe that it seems to be running XAMPP v8.1.25, which a quick Google
 search will show that it's vulnerable to
-<https://github.com/AlperenY-cs/CVE-2024-4577>. We can trigger this RCE exploit
+https://github.com/AlperenY-cs/CVE-2024-4577. We can trigger this RCE exploit
 in Powershell as such:
 
 ```ps1
@@ -1485,7 +1525,7 @@ Through some intense debugging, I soon figured that at some point between
 inputting the code and printing the error message, certain strings, including my
 decryption key, were being XORed against a single byte key. By setting this
 value to 0x00 and then checking the unchanged input strings, I found that the
-key 0xe8 would actually decrypt the last string to TISC{ - and then the
+key 0xe8 would actually decrypt the last string to `TISC{` - and then the
 decryption afterwards fails. I spent another painful day tracing this value all
 the way to its source - an instruction that reads a 16-bit value from the ADC
 register. This register, apparently, is controlled by the A0/A1 pins on the
@@ -1526,18 +1566,24 @@ Looking at where I first saw the flag format, I realized the flag was no longer
 there. At this point, it was 3am and I was really tired of this challenge, so I
 just searched through memory for the flag format and found the flag at 0x80034d.
 
-`TISC{h3y_Lo0k_1_m4d3_My_0wn_h4rdw4r3_t0k3n!}`
-
 # Sandboxed Notes App (Level 11)
 
-> All thanks to you agent, we are now safe from that bomb threat, and we're also
-> in their systems now!
-> 
-> We've gained access to a server used to store notes by the enemy. It looks to
-> be designed by a rookie, so it can't be that hard to find an entry.
-> Unfortunately, it seems that they are one step ahead of us, and deployed a
-> cutting edge sandbox by Microsoft around the notes app. Can you break through
-> it and give us more clues on who is behind all of these attacks?
+<Challenge 
+  title="Sandboxed Notes App" 
+  solves={3} 
+  flag="TISC{35c4p3_fr0m_pr150n_r34lm}"
+  files={[{name: "sandboxed-notes-app.zip", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024-1/sandboxed-notes-app.zip"}]}>
+
+All thanks to you agent, we are now safe from that bomb threat, and we're also
+in their systems now!
+
+We've gained access to a server used to store notes by the enemy. It looks to
+be designed by a rookie, so it can't be that hard to find an entry.
+Unfortunately, it seems that they are one step ahead of us, and deployed a
+cutting edge sandbox by Microsoft around the notes app. Can you break through
+it and give us more clues on who is behind all of these attacks?
+
+</Challenge>
 
 Finally we're past that annoying guessy challenge. PALINDROME wants to reward us
 for enduring that mess, and so, the next step to stop PALINDROME is a standard
@@ -2755,8 +2801,6 @@ p.sendline(b"6")
 p.interactive()
 ```
 
-`TISC{35c4p3_fr0m_pr150n_r34lm}`
-
 This challenge was super fun and interesting - it didn't use any fancy C++
 tricks or structs; just a great deal of debugging and clever exploits because of
 the complexity of the Verona sandbox and snmalloc. I really enjoyed the 2 days I
@@ -2765,19 +2809,27 @@ lots of thanks to the author of this challenge!
 
 # Revenge of the Dragon (Level 12)
 
-> All your investigations have led you to this place: a desolate hut, abandoned
-> and hidden deep within the forest.
-> 
-> As you push open the creaking door, the musty air hints at recent activity.
-> Scattered belongings and half-burnt logs in the fireplace suggest someone left
-> in a hurry.
-> 
-> In the dim light, you spot a flickering screen on a dusty table — a computer,
-> still running. On the display, a game title flashes ominously: “Revenge of the
-> Dragon.”
-> 
-> We know this is it. If we solve this we solve it all -- can you break in and
-> find out who is behind these attacks?
+<Challenge 
+  title="Revenge of the Dragon" 
+  solves={1} 
+  flag="TISC{it_was_SPECTRE_all_along...at_least_we_stopped_him_for_now}"
+  files={[{name: "revenge_of_the_dragon.zip", url: "https://github.com/samuzora/filedump/releases/download/tisc-2024-1/revenge_of_the_dragon.zip"}]}>
+
+All your investigations have led you to this place: a desolate hut, abandoned
+and hidden deep within the forest.
+
+As you push open the creaking door, the musty air hints at recent activity.
+Scattered belongings and half-burnt logs in the fireplace suggest someone left
+in a hurry.
+
+In the dim light, you spot a flickering screen on a dusty table — a computer,
+still running. On the display, a game title flashes ominously: “Revenge of the
+Dragon.”
+
+We know this is it. If we solve this we solve it all -- can you break in and
+find out who is behind these attacks?
+
+</Challenge>
 
 Now that we have RCE in the system running the note-storing app, the last step
 is to get root and stop PALINDROME once and for all. For a crime syndicate,

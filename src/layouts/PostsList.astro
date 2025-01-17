@@ -36,7 +36,7 @@ const latestPosts: any = postsByYear[selectedYear];
         {latestPosts.map((post: any) => (
         <Card>
           <div class="pb-3">
-            <a class="text-2xl font-bold" href={"/posts/" + post.slug}>{post.data.title}</a>
+            <a class="text-2xl font-bold" href={"/posts/" + post.id}>{post.data.title}</a>
           </div>
           <div class="pb-3">
             {post.data.excerpt || (post.body.substring(0, 100) + "...")}
@@ -76,7 +76,7 @@ const latestPosts: any = postsByYear[selectedYear];
   transition: color 0.2s, background 0.2s;
 }
 
-.select-year[data-is-selected], .select-year:hover {
+.select-year[data-is-selected="true"], .select-year:hover {
   background: var(--primary-color);
   color: var(--primary-bg) !important;
 }

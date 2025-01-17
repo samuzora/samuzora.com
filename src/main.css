@@ -4,6 +4,7 @@
 
 :root {
     --primary-color: rgb(134 121 154);
+    --primary-color-transparent-80: rgb(134 121 154 / 80%);
     --primary-color-transparent-60: rgb(134 121 154 / 60%);
 
     --first-text-color: rgb(209 216 228 / 100%);

@@ -3,50 +3,26 @@ import Layout from "@layouts/Layout.astro";
 import Card from "@components/Card.vue";
 import Toc from "@components/Toc.vue";
 import PostHeader from "@components/PostHeader.vue";
-import { getCollection } from "astro:content";
+import { getCollection, render } from "astro:content";
 
 export async function getStaticPaths() {
   const posts = await getCollection("blog");
   return posts.map(post => ({
     params: { 
-      id: post.slug
+      id: post.id
     }
   }))
 }
 
 const posts = (await getCollection("blog")).sort((a, b) => a.data.date - b.data.date);
 
-const postIndex = posts.findIndex(post => post.slug === Astro.params.id)
+const postIndex = posts.findIndex(post => post.id === Astro.params.id)
 
 const post = posts[postIndex]
 const prevPost = postIndex > 0 ? posts[postIndex - 1] : null;
 const nextPost = postIndex < posts.length ? posts[postIndex + 1] : null;
 
-const { Content, headings, remarkPluginFrontmatter } = await post.render();
-
-// github.com/rezahedi/rezahedi.dev/blob/main/src/components/TOC.astro
-// function buildHierarchy(headings: any)
-// {
-//   const toc: any[] = [];
-//   const parentHeadings = new Map();
-//
-//   if (!headings)
-//     return toc;
-//
-//   headings.forEach((h: any) => {
-//     const heading = { ...h, subheadings: [] };
-//     parentHeadings.set(heading.depth, heading);
-//     // Change 2 to 1 if your markdown includes your <h1>
-//     if (heading.depth === 1) {
-//       toc.push(heading);
-//     } else {
-//       parentHeadings.get(heading.depth - 1).subheadings.push(heading);
-//     }
-//   });
-//   return toc;
-// }
-//
-// const nestedHeadings = buildHierarchy(headings);
+const { Content, headings, remarkPluginFrontmatter } = await render(post);
 ---
 
 <Layout title={post.data.title}>
