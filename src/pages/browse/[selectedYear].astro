@@ -3,7 +3,7 @@ import PostsList from "@layouts/PostsList.astro"
 import { getCollection } from "astro:content";
 
 export async function getStaticPaths() {
-  const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
+  const posts = (await getCollection("blog")).sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
   const postsByYear = posts.reduce((acc: any, post) => {
     const year: number = post.data.date.getFullYear();
@@ -19,7 +19,7 @@ export async function getStaticPaths() {
   }));
 }
 
-const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
+const posts = (await getCollection("blog")).sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
 const postsByYear = posts.reduce((acc: any, post) => {
   const year: number = post.data.date.getFullYear();

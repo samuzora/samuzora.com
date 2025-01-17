@@ -14,7 +14,7 @@ export async function getStaticPaths() {
   }))
 }
 
-const posts = (await getCollection("blog")).sort((a, b) => a.data.date - b.data.date);
+const posts = (await getCollection("blog")).sort((a, b) => a.data.date.getTime() - b.data.date.getTime());
 
 const postIndex = posts.findIndex(post => post.id === Astro.params.id)
 
@@ -64,14 +64,14 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
 
           <div class="flex justify-between mt-6 pt-6 border-t border-[--secondary-bg]">
             {prevPost ? (
-            <a class="p-3 border border-[--secondary-bg] rounded-lg" href={"/posts/" + prevPost.slug}>
+            <a class="p-3 border border-[--secondary-bg] rounded-lg" href={"/posts/" + prevPost.id}>
                 <i class="fa-regular fa-angle-left"></i>
                 {prevPost.data.title}
               </a>
             ) : <div></div>
             }
             {nextPost ? (
-            <a class="p-3 border border-[--secondary-bg] rounded-lg" href={"/posts/" + nextPost.slug}>
+            <a class="p-3 border border-[--secondary-bg] rounded-lg" href={"/posts/" + nextPost.id}>
               {nextPost.data.title}
               <i class="fa-regular fa-angle-right"></i>
             </a>
