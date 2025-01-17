@@ -1,7 +1,7 @@
 ---
 import Nav from "../components/Nav.vue";
 import "../main.css";
-import { ViewTransitions } from "astro:transitions";
+import { ClientRouter } from "astro:transitions";
 
 interface Props {
 	title: string;
@@ -109,7 +109,7 @@ const config = {
       }
     </style>
 
-    <ViewTransitions />
+    <ClientRouter />
   </head>
 	<body>
     <div class="relative min-h-screen">
