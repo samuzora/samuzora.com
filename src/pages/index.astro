@@ -5,6 +5,7 @@ import {Content as Intro} from "@data/intro.md";
 import cves from "@data/cves.yml";
 import ctfs from "@data/ctfs.yml";
 import socials from "@data/socials.yml";
+import TypedWrapper from "@components/TypedWrapper.vue";
 ---
 
 <Layout title="samuzora's blog">
@@ -14,16 +15,13 @@ import socials from "@data/socials.yml";
         samuzora.com
       </div>
       <div>
-        <p class="typing">
-          <i id="subtitle" />
-        </p>
+        <TypedWrapper client:load />
       </div>
     </div>
     <div class="flex flex-col items-center gap-2">
       <!-- styling in main.css not here because of astro compilation messing up the classes -->
     </div>
     <div class="absolute bottom-5 md:bottom-10 w-full h-14 px-5 md:px-20 flex justify-end md:justify-between text-[--first-text-color] text-lg">
-      <!-- TODO: define the onclick event -->
       <div id="scrolldown" class="hidden md:flex rounded-full h-full aspect-square p-3 justify-center items-center bg-[--primary-bg-transparent-60] backdrop-blur border-2 border-[--secondary-bg] cursor-pointer hover:border-[3px] hover:pt-5 transition-all">
         <i class="fa-regular fa-arrow-down"></i>
       </div>
@@ -117,72 +115,8 @@ import socials from "@data/socials.yml";
   </div>
 </Layout>
 
-<script src="https://unpkg.com/typed.js@2.1.0/dist/typed.umd.js" />
-
 <script>
 document.addEventListener("astro:page-load", () => {
-  // typing animation
-  const config = {
-    usrTypeSpeed: 100,
-    usrBackSpeed: 60,
-    usrBackDelay: 1500,
-    usrStartDelay: 500,
-    usrLoop: true,
-    usrSmartBackspace: true,
-  };
-
-  function initTyped(id: any) {
-    const {
-      usrTypeSpeed,
-      usrBackSpeed,
-      usrBackDelay,
-      usrStartDelay,
-      usrLoop,
-      usrSmartBackspace,
-    } = config;
-
-    function typing(dataList: any) {
-      // @ts-ignore
-      const st = new Typed("#" + id, {
-        strings: [dataList],
-        typeSpeed: usrTypeSpeed || 100,
-        smartBackspace: usrSmartBackspace || false,
-        backSpeed: usrBackSpeed || 80,
-        backDelay: usrBackDelay || 1500,
-        loop: usrLoop || false,
-        startDelay: usrStartDelay || 500,
-      });
-    }
-
-    const sentenceList = [
-      "learning pwn, web and smart contract",
-      'p.sendline(b"A"*0x1000)',
-      "nvim4life",
-      "b *main+429",
-      "ctf writeups",
-      "cat ./flag.txt",
-      "x/50gx 0xfff8881012996000",
-      "nvim solve.py",
-      "p.interactive()",
-      "' or 1=1 -- ",
-      "b'\\xd0\\x9e\\xdb\\xf7\\xff\\x7f\\x00\\x00'",
-    ];
-    if (document.getElementById(id)) {
-      // @ts-ignore
-      const st = new Typed("#" + id, {
-        strings: sentenceList,
-        typeSpeed: usrTypeSpeed || 100,
-        smartBackspace: usrSmartBackspace || false,
-        backSpeed: usrBackSpeed || 80,
-        backDelay: usrBackDelay || 1500,
-        loop: usrLoop || false,
-        startDelay: usrStartDelay || 500,
-      });
-    }
-  }
-
-  initTyped("subtitle");
-
   // scrolldown button
   const scrolldown = document.getElementById("scrolldown");
   if (scrolldown) {

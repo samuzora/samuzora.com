@@ -76,11 +76,11 @@ html {
 }
 
 /* typing animation */
-.typing {
+.typed {
     text-align: center;
 }
 
-.typing i {
+.typed i {
     font-family: "Chillax", sans-serif;
     font-weight: 400;
     color: var(--third-text-color);
@@ -88,7 +88,7 @@ html {
     font-size: 20px;
 }
 
-.typing span {
+.typed span {
     color: var(--third-text-color);
     font-size: 21px;
 }
