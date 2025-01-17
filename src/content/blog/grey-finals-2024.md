@@ -2,6 +2,7 @@
 title: GreyCTF Finals 2024
 date: 2024-08-05
 category: Writeups
+excerpt: Writeups for GreyCTF Finals 2024
 tags:
     - pwn
 ---

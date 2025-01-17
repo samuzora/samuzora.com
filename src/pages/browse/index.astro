@@ -3,7 +3,6 @@ import PostsList from "@layouts/PostsList.astro"
 import { getCollection } from "astro:content";
 
 const posts = (await getCollection("blog")).sort((a, b) => b.data.date - a.data.date);
-console.log(posts)
 
 const postsByYear = posts.reduce((acc: any, post) => {
   const year = post.data.date.getFullYear();
