@@ -69,14 +69,13 @@ onUnmounted(() => {
 
 <template>
   <div class="text-xs">
-    <ul id="toc">
+    <div class="mr-2" id="toc">
       <TocEntry
         v-for="heading in toc"
         v-bind:heading="heading"
         v-bind:key="heading.slug"
       />
-
-    </ul>
+    </div>
   </div>
 </template>
 
