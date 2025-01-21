@@ -30,11 +30,13 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
     {
     // ToC for lg and above - appears on the side of content
     headings.length > 0 && 
-    <div class="sticky lg:w-[125px] xl:w-[200px] self-start hidden lg:block mr-10 top-[125px] h-[calc(100vh-200px)] overflow-y-auto" ss-container>
+    <div class="sticky lg:w-[125px] xl:w-[200px] self-start hidden lg:block mr-10 top-[125px]">
       <div class="text-xl font-bold text-[--second-text-color] py-2">
         Contents
       </div>
-      <Toc client:load headings={headings} />
+      <div class="h-[calc(100vh-250px)]" ss-container>
+        <Toc client:load headings={headings} />
+      </div>
     </div>
     }
     <div data-main-content class="flex flex-col gap-10 min-w-[300px] md:w-[748px] lg:max-w-[904px] xl:max-w-[1300px]">
@@ -53,7 +55,7 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
                 </div>
               <i class="transition-all my-auto text-sm text-white fa-regular fa-chevron-down group-open:rotate-180"></i>
               </summary>
-              <div ss-container class="h-[400px]">
+              <div class="max-h-96 overflow-y-scroll">
                 <Toc client:load headings={headings} />
               </div>
             </details>
