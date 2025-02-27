@@ -32,7 +32,7 @@ export default defineConfig({
       [
         rehypePrettyCode,
         {
-          theme: "catppuccin-mocha",
+          theme: "kanagawa-wave",
           defaultLang: "plaintext",
           transformers: [
             transformerNotationDiff(),
