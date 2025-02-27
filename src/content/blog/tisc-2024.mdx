@@ -1386,7 +1386,7 @@ echo                                 ;  cp /app/flag.txt out;
 ```
 
 The whitespace is so our hash doesn't interfere with the payload. After parsing
-this file, remote returns us the flag:
+this file, remote returns us the flag.
 
 # Diffuse (Level 10)
 
@@ -1559,12 +1559,12 @@ and set its value to 1.
 Following this, I tried a few combinations of output from the chip with the
 secret key - sending back the string we received, XORing each respective byte of
 the received string and the secret key, and finally sending just the secret key,
-completely ignoring the bytes that the chip receives
-- which surprisingly worked, meaning the received bytes were just useless red
-herrings as well. The LCD then tells us that the flag is found in the I2C bus.
-Looking at where I first saw the flag format, I realized the flag was no longer
-there. At this point, it was 3am and I was really tired of this challenge, so I
-just searched through memory for the flag format and found the flag at 0x80034d.
+completely ignoring the bytes that the chip receives - which surprisingly
+worked, meaning the received bytes were just useless red herrings as well. The
+LCD then tells us that the flag is found in the I2C bus. Looking at where I
+first saw the flag format, I realized the flag was no longer there. At this
+point, it was 3am and I was really tired of this challenge, so I just searched
+through memory for the flag format and found the flag at 0x80034d.
 
 # Sandboxed Notes App (Level 11)
 
