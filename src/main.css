@@ -286,9 +286,10 @@ a:hover {
         color: var(--first-text-color);
         transition: color 0.2s;
         cursor: pointer;
-        text-decoration: underline;
         box-sizing: border-box;
         word-break: break-all;
+        text-decoration: underline;
+        text-underline-offset: 4px;
     }
 
     a:hover {
