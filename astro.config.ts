@@ -23,6 +23,14 @@ export default defineConfig({
   site: "https://samuzora.com",
   integrations: [vue(), tailwind(), sitemap(), mdx()],
 
+  server: {
+    port: 1234,
+    host: true,
+  },
+  devToolbar: {
+    enabled: false,
+  },
+
   markdown: {
     syntaxHighlight: false,
     shikiConfig: {

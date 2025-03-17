@@ -13,7 +13,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div class="border border-[--secondary-bg]">
+  <div class="my-4 border border-[--secondary-bg]">
     <div class="border-b border-[--secondary-bg] text-lg pb-4 mt-4">
       <span class="p-4 border-r border-[--secondary-bg] text-[--second-text-color]">
         {{ props.solves ?? "?" }} solves
