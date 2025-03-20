@@ -351,7 +351,19 @@ a:hover {
         box-sizing: border-box;
         border-radius: 16px;
         max-width: 100%;
-        margin: 1rem auto 1rem;
+        margin: 2rem auto 2rem;
+    }
+
+    img::after {
+        content: attr("alt");
+    }
+
+    /* xl */
+    @media (width >= 80rem) {
+        img {
+            border-radius: 8px;
+            max-width: 80%;
+        }
     }
 
     table {

@@ -69,7 +69,7 @@ onUnmounted(() => {
 
 <template>
   <div class="text-xs">
-    <div class="mr-2" id="toc">
+    <div class="mr-3" id="toc">
       <TocEntry
         v-for="heading in toc"
         v-bind:heading="heading"

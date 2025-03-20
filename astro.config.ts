@@ -6,6 +6,7 @@ import sectionize from "remark-sectionize";
 import remarkToc from "remark-toc";
 
 import { rehypePrettyCode } from "rehype-pretty-code";
+
 import { 
   transformerNotationDiff, 
   transformerNotationFocus,
@@ -24,7 +25,7 @@ export default defineConfig({
   integrations: [vue(), tailwind(), sitemap(), mdx()],
 
   server: {
-    port: 1234,
+    port: 4321,
     host: true,
   },
   devToolbar: {

@@ -54,10 +54,6 @@ for a while but soon realized that the following seccomp not only specifies sysc
 
 So it blocks `int 0x80` as well :(
 
-The organizers also took a pic of me thinking I was very smart and showing the "unintended" to Elma :(
-
-![nice unintended](@images/2024/grey-finals-2024/unintended.jpg)
-
 Anyway, after the seccomp, it then jumps to the shellcode after executing the following:
 
 ```c
