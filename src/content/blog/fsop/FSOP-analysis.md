@@ -2,7 +2,7 @@
 title: Analysis of FSOP techniques
 date: 2023-12-04
 excerpt: FSOP series introduction
-category: FSOP series
+category: fsop-series
 tags:
   - pwn
   - fsop

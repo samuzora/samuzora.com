@@ -2,7 +2,7 @@
 title: Sieberrsec 4.0
 date: 2023-01-14
 excerpt: Sieberrsec 4.0 - Sus Machine
-category: Writeups
+category: writeups
 tags:
     - pwn
 ---

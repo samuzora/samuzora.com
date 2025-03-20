@@ -2,7 +2,7 @@
 title: Cyberleague Quarterfinals 2022 - Pretty Hyper Phrog
 date: 2022-12-23
 excerpt: Pretty Hyper Phrog writeup - PHP deserialization to LFI + RCE
-category: Authored challenges
+category: writeups
 tags:
     - web
 ---

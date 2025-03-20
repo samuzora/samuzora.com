@@ -8,7 +8,7 @@ const blog = defineCollection({
     title: z.string(),
     date: z.coerce.date(),
     excerpt: z.string(),
-    category: z.string(),
+    category: z.string(), // should be a normalized-string, no caps, spaces, or slashes
     tags: z.array(z.string())
   })
 });

@@ -2,7 +2,7 @@
 title: Sekai CTF 2024
 date: 2024-08-27
 excerpt: Writeups for Sekai CTF 2024
-category: Writeups
+category: writeups
 tags: 
     - pwn
 ---

@@ -16,11 +16,17 @@ export async function getStaticPaths() {
 
 const posts = (await getCollection("blog")).sort((a, b) => a.data.date.getTime() - b.data.date.getTime());
 
-const postIndex = posts.findIndex(post => post.id === Astro.params.id)
+const post = posts.find(post => post.id === Astro.params.id)
 
-const post = posts[postIndex]
-const prevPost = postIndex > 0 ? posts[postIndex - 1] : null;
-const nextPost = postIndex < posts.length ? posts[postIndex + 1] : null;
+if (post === undefined) return Astro.rewrite("/404");
+
+const postsForCategory = posts.filter(p => p.data.category === post.data.category)
+
+// get post index again..
+const postIndex = postsForCategory.findIndex(post => post.id === Astro.params.id)
+
+const prevPost = postIndex > 0 ? postsForCategory[postIndex - 1] : null;
+const nextPost = postIndex < postsForCategory.length ? postsForCategory[postIndex + 1] : null;
 
 const { Content, headings, remarkPluginFrontmatter } = await render(post);
 ---

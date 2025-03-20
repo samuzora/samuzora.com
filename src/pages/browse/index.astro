@@ -1,22 +1,5 @@
 ---
-import PostsList from "@layouts/PostsList.astro"
-import { getCollection } from "astro:content";
-
-const posts = (await getCollection("blog")).sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
-
-const postsByYear = posts.reduce((acc: any, post) => {
-  const year = post.data.date.getFullYear();
-  if (!acc[year]) {
-    acc[year] = [];
-  }
-  acc[year].push(post);
-  return acc;
-}, {});
-
-const latestYear = Object.keys(postsByYear)[Object.keys(postsByYear).length - 1];
+// HARDCODED
+return Astro.rewrite("/browse/writeups")
 ---
 
-<PostsList 
-  selectedYear={latestYear} 
-  postsByYear={postsByYear}
-/>

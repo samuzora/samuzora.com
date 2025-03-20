@@ -2,7 +2,7 @@
 title: Grey Cat the Flag Quals 2024
 date: 2024-05-12
 excerpt: Grey Quals 2024 - Baby Fmtstr and The Motorola 2 - wasm pwn
-category: Writeups
+category: writeups
 tags:
     - pwn
 ---

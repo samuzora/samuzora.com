@@ -2,7 +2,7 @@
 title: HACK@AC 2024 - 安心 Impact!
 date: 2024-03-23
 excerpt: HACK@AC 2024 - Writeup for 安心 Impact! - House of Einherjar with a small twist
-category: Authored challenges
+category: writeups
 tags:
     - pwn
 ---

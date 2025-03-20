@@ -1,0 +1,30 @@
+---
+import { getCollection } from "astro:content";
+
+export async function getStaticPaths() {
+  const posts = (await getCollection("blog"));
+
+  let categories: { [category: string]: { latestYear: number } } = {}
+
+  posts.forEach((post: typeof posts[number]) => {
+    const category = post.data.category
+    const year = post.data.date.getFullYear()
+
+    if (!categories[category]) {
+      categories[category] = { latestYear: year }
+    } else if (categories[category].latestYear < year) {
+      categories[category].latestYear = year
+    }
+  })
+
+  return Object.entries(categories).map(([ category, { latestYear } ]) => ({
+    params: { category },
+    props: { latestYear }
+  }))
+}
+
+const { category } = Astro.params;
+const { latestYear } = Astro.props;
+
+return Astro.rewrite(`/browse/${category}/${latestYear}`)
+---

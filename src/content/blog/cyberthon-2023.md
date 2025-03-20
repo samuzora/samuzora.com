@@ -2,7 +2,7 @@
 title: Cyberthon 2023
 date: 2023-05-11
 excerpt: Cyberthon 2023 - Allfoods, Flagmin, Passgen, Tune of Apocalypse, Wordpocalypse
-category: Writeups
+category: writeups
 tags:
   - pwn
 ---

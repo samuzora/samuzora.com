@@ -1,0 +1,119 @@
+---
+import Layout from "@layouts/Layout.astro";
+import Card from "@components/Card.vue";
+import { getCollection } from "astro:content";
+
+export async function getStaticPaths() {
+  const posts = (await getCollection("blog")).sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+  const pages: { params: { category: string, year: string }, props: { categories: string[], years: string[], posts: typeof posts }}[] = [];
+
+  const categories: string[] = Array.from(new Set(posts.map(post => post.data.category))).sort()
+  for (let category of categories) {
+    const postsByYear = posts
+    .filter(post => post.data.category == category)
+    .reduce((
+      acc: { [year: string]: (typeof posts) },
+      post
+    ) => {
+        const year: string = post.data.date.getFullYear().toString();
+        if (!acc[year]) {
+          acc[year] = [];
+        }
+        acc[year].push(post);
+        return acc;
+      }, {})
+
+    const years = Object.keys(postsByYear)
+
+    Object.entries(postsByYear).forEach(([year, posts]) => {
+      pages.push({
+        params: { category, year },
+        props: { categories, years, posts }
+      })
+    })
+  }
+
+  return pages
+}
+
+const { category, year } = Astro.params;
+const { categories, years, posts } = Astro.props;
+---
+
+<Layout title="samuzora's blog">
+  <div class="pt-[100px] relative">
+    <div class="mx-10 w-auto md:mx-auto md:w-[668px] lg:w-[924px]">
+      <details open class="group p-5 mb-5 bg-[--primary-bg-transparent-80] border border-[--secondary-bg] rounded-lg">
+        <summary class="flex justify-between">
+          <h3>Filters</h3>
+          <i class="transition-all my-auto text-sm text-white fa-regular fa-chevron-down group-open:rotate-180"></i>
+        </summary>
+        <div class="mt-3 pt-3 select-none border-t border-[--secondary-bg]">
+          <h5>Categories</h5>
+          <div class="flex flex-wrap justify-start gap-3 pt-2 pb-3 text-md">
+            {categories.map(c => (
+            <a data-is-selected={c === category} href={`/browse/${c}`} class="select-year p-2 rounded-lg border border-[--secondary-bg]">
+              {c}
+            </a>
+            ))}
+          </div>
+          <h5>Years</h5>
+          <div class="flex flex-wrap justify-start gap-3 pt-2 text-md">
+            {years.map(y => (
+            <a data-is-selected={y === year} href={`/browse/${category}/${y}`} class="select-year p-2 rounded-lg border border-[--secondary-bg]">
+              {y}
+            </a>
+            ))}
+          </div>
+        </div>
+      </details>
+      <div class="flex flex-col gap-10">
+        {posts.map((post: any) => (
+        <Card>
+          <div class="pb-3">
+            <a class="text-2xl font-bold" href={"/posts/" + post.id}>{post.data.title}</a>
+          </div>
+          <div class="pb-3">
+            {post.data.excerpt || (post.body.substring(0, 100) + "...")}
+          </div>
+          <div class="flex justify-between text-sm">
+            <div class="flex justify-start gap-5 grow">
+              <div class="flex gap-2 items-center text-[--fourth-text-color] font-bold">
+                <i class="fa-regular fa-calendar"></i>
+                {post.data.date.toLocaleDateString("en-SG", { year: "2-digit", month: "short", day: "2-digit" })}
+              </div>
+              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color] font-bold">
+                <i class="fa-regular fa-folder"></i>
+                {post.data.category}
+              </div>
+              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color] font-bold">
+                <i class="fa-regular fa-tags"></i>
+                {post.data.tags.join(" | ")}
+              </div>
+            </div>
+            <div class="w-auto text-base">
+              <a href={"/posts/" + post.id}>
+                Read more
+                <i class="fa-regular fa-angle-right"></i>
+              </a>
+            </div>
+          </div>
+        </Card>
+        ))}
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style>
+.select-year {
+  background: var(--primary-bg-transparent-80);
+  transition: color 0.2s, background 0.2s;
+}
+
+.select-year[data-is-selected="true"], .select-year:hover {
+  background: var(--primary-color);
+  color: var(--primary-bg) !important;
+}
+</style>
