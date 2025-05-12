@@ -1,18 +1,11 @@
-Hi!! Welcome to my blog~ You can find my CTF writeups and other
-cybersecurity-related stuff here!
+Hi! Welcome to my blog~ You can find ctf writeups, vuln research posts, and
+other cybersecurity-related stuff here!
 
-I'm Lucas Tan, an 18-year-old student from Singapore. I've recently graduated
-from Anglo-Chinese School (Independent) and am waiting to enlist in National
-Service. I love playing CTFs and pwning stuff :)
+I'm Lucas, a 19-year-old Singaporean currently serving in National Service. I
+have a burning addiction for ctfs, and also do some web dev on the side.
 
-I main pwn and web, and currently learning kernel pwn, v8, and blockchain.
+I main pwn and web, and am currently learning kernel pwn, v8, and blockchain. I
+currently participate with [slight_smile](https://ctftime.org/team/208726) and
+[WreckTheLine](https://ctftime.org/team/57908).
 
-My CTF teams:
-
-- [slight_smile](https://ctftime.org/team/208726)
-- [WreckTheLine](https://ctftime.org/team/57908)
-
-Open to team invites, please DM me on Discord!
-
-Besides playing, I've also organized HACK@AC 2022 and 2024, and set challenges
-for some other CTFs.
+Outside of playing ctfs, I also love building keyboards and listening to k-pop!
