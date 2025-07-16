@@ -2,21 +2,22 @@
 title: LNC 2025
 date: 2025-07-12
 category: writeups
-excerpt: Writeup for feedback-form
+excerpt: Writeups for feedback-form and Utility Pole: Revengeance
 tags:
   - pwn
 ---
 
 import Challenge from "@components/Challenge.vue";
 
-For Lag n Crash this year, I wrote 2 pwn challenges, `feedback-form` and `Trump
+For Lag and Crash this year, I wrote 2 pwn challenges, `feedback-form` and `Trump
 Dating Simulator`, which were released in waves 1 and 3 respectively. Both
 challenges incorporated some interesting stuff I thought of during my infinite
-admin time in NS, so I hope it was fun and educational for everyone!
+admin time in NS, so I hope it was fun and educational for everyone! These are
+my writeups for my challenges, as well as other interesting pwn challenges by
+other authors in the CTF!
 
 > I didn't have much time to do writeups, so I'll update this at some later date
-> Trump Dating Simulator and maybe Utility Pole Revengeance (which I'm also
-> solving atm)
+> with the writeup for Trump Dating Simulator
 
 # feedback-form
 
@@ -310,7 +311,7 @@ def perform_heap_leak():
 In `perform_heap_leak(){:python}`, we allocate a string that is larger than the
 unsorted chunk, which triggers `malloc_consolidate` coalescing all our chunks
 together. This chunk is immediately freed, which returns it back to the
-coalesced chunk, forming a chunk of size 0xad0.
+coalesced chunk, forming a chunk of size 0xa30.
 
 ```ansi
 [32mFree chunk (unsortedbin)[39m | [33mPREV_INUSE[39m
@@ -405,6 +406,8 @@ object of our own. This cJSON object will be passed to `cJSON_Delete`, where
 both itself and its valuestring will be freed. If we make its valuestring point
 to some region within itself, we will then have overlapping chunks which can be
 used for our arb write.
+
+## Exploit
 
 ```python
 def arb_free():
