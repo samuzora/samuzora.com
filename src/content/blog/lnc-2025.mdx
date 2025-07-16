@@ -860,7 +860,7 @@ index of the `pipe_buffer` to the start of the page. If we compare this index
 against the actual index in our code, we can then identify both the victim and
 original `pipe_buffer`.
 
-Lastly, to free the `struct page{c:}`, we simply close both fds of the original
+Lastly, to free the `struct page{:c}`, we simply close both fds of the original
 `pipe_buffer`. Now, the freed page should look like this:
 
 ```ansi
@@ -872,9 +872,9 @@ Lastly, to free the `struct page{c:}`, we simply close both fds of the original
 ```
 
 with fd and bk pointers to the freelist of pages. We still have reference to
-this `struct page{c:}` via the victim `pipe_buffer`, giving us our UAF.
+this `struct page{:c}` via the victim `pipe_buffer`, giving us our UAF.
 
-## Attacking `struct file{c:}`
+## Attacking `struct file{:c}`
 
 ```c
 // now we have page-level uaf via victim
@@ -907,10 +907,10 @@ for (int i = 0; i < final_file_spray; i++) {
 }
 ```
 
-Before we spray the `struct file{c:}` again, we want to make the cursor of the
-victim `pipe_buf` point to the start of a potential `struct file{c:}` - which
+Before we spray the `struct file{:c}` again, we want to make the cursor of the
+victim `pipe_buf` point to the start of a potential `struct file{:c}` - which
 means it should be 0xc0 from the start of the page, pointing to the 2nd node of
-the filp cache since the size of `struct file{c:}` is 0xc0.
+the filp cache since the size of `struct file{:c}` is 0xc0.
 
 After this, we can spray a few more files to make sure the UAF page is allocated
 by buddy, and the slab's 2nd node is also allocated by SLUB. The page now looks
@@ -1004,7 +1004,7 @@ Our write primitive should set the value to `0x084a80d | FMODE_WRITE |
 FMODE_CAN_WRITE{:c}`, which is `0x84e801f{:c}`.
 
 To see if this succeeds, we simply try to write to every single file that we've
-opened, and if `write(){c:}` doesn't return -1, we would have successfully
+opened, and if `write(){:c}` doesn't return -1, we would have successfully
 written to the file. If so, `/etc/passwd` will already be overwritten, and we
 can exit the program and login as root!
 
