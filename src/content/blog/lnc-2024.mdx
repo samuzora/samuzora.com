@@ -7,15 +7,24 @@ tags:
     - pwn
 ---
 
+import Challenge from "@/components/Challenge.vue";
+
 I participated with Blahaj in Lag and Crash 2024 this year and got 1st place :)
 
 It had a couple of cool pwn challs (including kernel pwn!!), here are my writeups for them!
 
 # Lucky Plaza
 
-> This plaza is full of lucky numbers.
->
-> Author: flyyee
+<Challenge
+title="Lucky Plaza"
+solves={2}
+flag="LNC24{i'm_feeling-lucky_339a65e93299ad8d72c42b263aa23117}">
+
+This plaza is full of lucky numbers.
+
+Author: flyyee
+
+</Challenge>
 
 [Source](https://github.com/Lag-and-Crash/2024/tree/main/challenges/pwn/Lucky%20Plaza)
 
@@ -298,6 +307,8 @@ already freed tcache chunks in the heap, so just leak one of the `fd` pointers.
 
 Then, we can just calculate the offset from `ptr_guard` and `exit_funcs`, and win :)
 
+## Exploit
+
 ```py
 #!/usr/bin/env python3
 
@@ -395,9 +406,16 @@ p.interactive()
 
 # Cheminventory
 
-> Storing explosive chemicals in the kernel is a wonderful idea! Surely nothing can go wrong...right?
-> 
-> Author: Kaligula
+<Challenge
+title="Cheminventory"
+solves={1}
+flag="LNC24{1f_y0U_473_n07_P4R7_0f_Th3_501UT10N_YoU_a7E_P47T_0f_Th3_Pr3C1P1T473}">
+
+Storing explosive chemicals in the kernel is a wonderful idea! Surely nothing can go wrong...right?
+
+Author: Kaligula
+
+</Challenge>
 
 [Source](https://github.com/Lag-and-Crash/2024/tree/main/challenges/pwn/Cheminventory)
 
@@ -464,26 +482,40 @@ purpose. The `idx` is used to keep track of the actual index of the chemical in 
 
 ### About pages and slabs
 
-A page is basically a mini-heap-cache for kernel, and there are hundreds of them in the kernel. Each page can physically
-store 16 chunks of the same size, and there can be multiple pages per size. There are empty pages (which will be
-unallocated by the kernel soon), partial pages (which have a mix of used and free chunks), and full pages (which have
-all chunks used and hence become inactive until a chunk in the page is freed).
+A page is the basic unit of memory returned from the buddy allocator, and it is
+allocated from physical memory. This page is requested by the slab allocator for
+its own use, but pages are used for many other applications as well. The `struct
+page{:c}` is used to handle references to the actual physical memory, and it
+exists in a global list of `struct pages{:c}`.
 
-A slab is a contiguous block of memory divided into pages. There are different slabs for different purposes, which the
-kernel uses in order to improve security (it has lots of space for these slabs anyway). For example, there is
-`kmalloc-256` and `kmalloc-cg-256`, where chunks allocated with `GFP_KERNEL_ACCOUNT` are stored in `cg`, and normal
-chunks are stored in the general-purpose page type `kmalloc-256`. This provides even more separation between chunks used
-for different purposes. Lastly, the code path taken to allocate a chunk is also important, as it is used as a seed to
-determine which of the many `kmalloc-256` pages to allocate to. So it's quite confusing and unpredictable where our
-chunks will end up (other than knowing the type of cache).
+The slab allocator is responsible for the allocation of smaller-order kernel
+objects, allocated via `kmalloc(){:c}`. Every slab is backed by the allocation of
+a page, and a slab can store multiple objects of the same size.
 
-(thx to Kaligula for correcting my misconception about buddy allocator freeing pages instead of slabs!)
+There are 3 kinds of slabs: active, partial, and full. Full slabs are completely
+filled with objects and cannot serve any allocations. Partial slabs have some
+free nodes, but are not immediately used to serve allocation requests. The
+active slab is the one that is used to serve allocation requests as long as it
+has remaining free nodes. For each cache (a collection of slabs storing objects
+of the same size) there is 1 active slab and a linked list of partial slabs.
+References to full slabs are not kept in the cache, until an object is freed
+from that slab, adding the slab to the partial list. If a slab is completely
+empty, the slab allocator will free it, returning the page to the buddy
+allocator.
+
+There are generally 2 important kinds of cache for general-purpose objects that
+are allocated with `kmalloc(){:c}` - the `kmalloc-x` cache and `kmalloc-cg-x`
+cache. Objects allocated with `GFP_KERNEL_ACCOUNT` will go into the `cg-x`
+cache, while objects not allocated with this flag will go to the `x` cache.
+There are also specific caches for special objects in the kernel, such as `filp`
+which is only used to serve allocation requests for `struct file{:c}` objects.
+These special objects are allocated with `kmem_cache_alloc(){:c}` instead.
 
 ---
 
-With this, we see that the chemical struct should appear in `kmalloc-256`, while the note should appear in
-`kmalloc-cg-256`. This didn't turn out to be terribly important for the final exploit, but I did try to exploit this
-later on.
+With this, we see that the chemical struct should appear in `kmalloc-256`, while
+the note should appear in `kmalloc-cg-256`. This didn't turn out to be terribly
+important for the final exploit, but I did try to exploit this later on.
 
 A chemical has the following struct:
 
@@ -637,8 +669,8 @@ Once I found the UAF I thought the rest would be trivial. How wrong I was...
 
 What can we do with this UAF? Since it was my first time doing kernel pwn, I thought the slub allocator was similar to
 libc's `malloc`, so I thought that it would just be a trivial double free and `fd` overwrite. However, I soon realized
-that the allocator actually does checks to ensure the pointer is in a valid slub before allocating and updating the
-cache head with the poisoned `fd`. If not, it exits with a slub error. 
+that the allocator actually does checks to ensure the pointer is in a valid slab before allocating and updating the
+cache head with the poisoned `fd`. If not, it exits with a kernel oops.
 
 In fact, here's how a freed chemical looks like:
 
@@ -1073,8 +1105,6 @@ struct tty_struct {
 } __randomize_layout
 ```
 
-(bruh why is there `__randomize_layout`, doesn't that mess up the ordering of the struct??)
-
 As we can see, our target is `tty_struct.ops`, which we need to craft a fake vtable for.
 
 ```c
@@ -1103,7 +1133,8 @@ struct tty_operations {
 I didn't actually write an exploit for this, but at first glance it seems possible. In my exploit, I targeted
 `pipe_buffer` for RIP control instead.
 
-(edit: Kaligula mentioned that `tty_struct` is allocated using `GFP_KERNEL`, so it's actually not possible)
+(edit: Kaligula mentioned that `tty_struct` is allocated using `GFP_KERNEL`, so
+it's actually not possible as it'll go into the `kmalloc-256` cache)
 
 ### `pipe_buffer`
 
@@ -1160,29 +1191,35 @@ struct pipe_inode_info *alloc_pipe_info(void)
 }
 ```
 
-We see that it's allocated with `GFP_KERNEL_ACCOUNT`. For some reason, the size is `1k` despite the small size of the
-struct, but anyway this means the cache page is `kmalloc-cg-1k`. So, we should try and pivot our UAF to this cache page.
+We see that it's allocated with `GFP_KERNEL_ACCOUNT`. For some reason, the size
+is `1024` despite the small size of the struct, but anyway this means the cache
+page is `kmalloc-cg-1k`. So, we should try and pivot our UAF to this cache page.
 
-But how to leak this struct's address after allocation? This is where `msg_msg` comes into play again. Right now, we've
-used up `cg_256_msg_msg.fd` and `cg_512_msg_msg.fd` to obtain addresses for the chemical linked list. However, we
-actually haven't used either `cg_256_msg_msg.bk` or `cg_1k_msg_msg.fd`. First things first, to separate our 3rd fake
-chemical (which uses `kmalloc-cg-1k` already) from our target struct, we should change the 3rd chemical's cache to
-`kmalloc-cg-2k` to avoid any potential overlap.  Then, we can spray `kmalloc-cg-1k` with `msg_msg` before the spray for
-`kmalloc-cg-256`, such that `cg_256_msg_msg.bk` will point to `kmalloc-cg-1k`, thus giving us our leak. Then, we can fix
-the attacker chemical with the leaked address at `note_addr`. Lastly, we spray `pipe_buf` on `kmalloc-cg-1k`, allowing
-us to reclaim the address we leaked.
+But how to leak this struct's address after allocation? This is where `msg_msg`
+comes into play again. Right now, we've used up `cg_256_msg_msg.fd` and
+`cg_512_msg_msg.fd` to obtain addresses for the chemical linked list. However,
+we actually haven't used either `cg_256_msg_msg.bk` or `cg_1k_msg_msg.fd`. First
+things first, to separate our 3rd fake chemical (which uses `kmalloc-cg-1k`
+already) from our target struct, we should change the 3rd chemical's cache to
+`kmalloc-cg-2k` to avoid any potential overlap.  Then, we can spray
+`kmalloc-cg-1k` with `msg_msg` before the spray for `kmalloc-cg-256`, such that
+`cg_256_msg_msg.bk` will point to `kmalloc-cg-1k`, thus giving us our leak.
+Then, we can fix the attacker chemical with the leaked address at `note_addr`.
+Lastly, we spray `pipe_buf` on `kmalloc-cg-1k`, allowing us to reclaim the
+address we leaked.
 
 So this is our new linked list:
 
 ![Linked list 1](@images/2024/lnc-2024/free-list-1.png)
 
-When `attacker` is freed, it will also free the `pipe_buf` object, which we can then reallocate with some other struct,
-possibly overwriting `pipe_buffer.ops` with a fake vtable address.
+When `attacker` is freed, it will also free the `pipe_buf` object, which we can
+then reallocate with some other struct, possibly overwriting `pipe_buffer.ops`
+with a fake vtable address.
 
 ## Step 5: RIP control via overlap
 
-Now we can almost exploit our new arbitrary free to control RIP by overwriting `pipe_buffer.ops`. Can we still use
-`msg_msg` to achieve this?
+Now we can almost exploit our new arbitrary free to control RIP by overwriting
+`pipe_buffer.ops`. Can we still use `msg_msg` to achieve this?
 
 ### `msg_msg` again
 
@@ -1228,34 +1265,45 @@ pipe_buf
 0x0000000000000000      0x0000000000000000
 ```
 
-(no idea why all the fields for `pipe_buf` are left as nulled after the `kcalloc()` - shouldn't some fields be
-initialized? maybe i need to trigger some operations to setup fields...)
+(no idea why all the fields for `pipe_buf` are left as nulled after the
+`kcalloc()` - shouldn't some fields be initialized? maybe i need to trigger some
+operations to setup fields...)
 
-Anyway, we see that `pipe_buf.ops` actually aligns nicely with `msg_msg.mtype`. Since we can control `mtype`, can't we
-use this to control `pipe_buf.ops` and win? 
+> Edit: now in 2025 I realized that they are only filled in when a write
+> operation is called on the buffer for performance purposes
 
-Unfortunately, not quite for 2 reasons. Firstly, when I tried to trigger the RIP control by releasing the `pipe_buf`, it
-seems that it sees the other fields in `msg_msg` like `msg_msg.fd`, `msg_msg.bk` and so on, and tries to free them,
-before calling `pipe_buf.ops->release`. I don't exactly know where this code is, but what seems to happen is it attempts
-to read and store the address to `release` somewhere without calling it, then does a few frees which crashes the kernel
-due to detected double free, before `release` is actually called. Secondly, even if the initial exploit worked, for our
-ROP chain later, because of gadget constraints, our stack will end up pointing to top of `pipe_buf` object
-(`msg_msg.fd`), which we have no control over. Then the ROP chain will crash because `msg_msg.fd` is not pointing to a
-valid instruction address.
+Anyway, we see that `pipe_buf.ops` actually aligns nicely with `msg_msg.mtype`.
+Since we can control `mtype`, can't we use this to control `pipe_buf.ops` and
+win? 
+
+Unfortunately, not quite for 2 reasons. Firstly, when I tried to trigger the RIP
+control by releasing the `pipe_buf`, it seems that it sees the other fields in
+`msg_msg` like `msg_msg.fd`, `msg_msg.bk` and so on, and tries to free them,
+before calling `pipe_buf.ops->release`. I don't exactly know where this code is,
+but what seems to happen is it attempts to read and store the address to
+`release` somewhere without calling it, then does a few frees which crashes the
+kernel due to detected double free, before `release` is actually called.
+Secondly, even if the initial exploit worked, for our ROP chain later, because
+of gadget constraints, our stack will end up pointing to top of `pipe_buf`
+object (`msg_msg.fd`), which we have no control over. Then the ROP chain will
+crash because `msg_msg.fd` is not pointing to a valid instruction address.
 
 ### `chemical.note`
 
-At this point, I turned back to the chemical note and how it's stored using `GFP_KERNEL_ACCOUNT`, making it appear in
-`cg` cache. I have complete control over the entire note as well! Isn't this exactly what I want? So I went down this
-path for a while too.
+At this point, I turned back to the chemical note and how it's stored using
+`GFP_KERNEL_ACCOUNT`, making it appear in `cg` cache. I have complete control
+over the entire note as well! Isn't this exactly what I want? So I went down
+this path for a while too.
 
-However, it turns out I neglected to consider that the max size of a note is `100`, as seen in `DO_CREATE`. So we can't
-actually create a note in `kmalloc-cg-1k`.
+However, it turns out I neglected to consider that the max size of a note is
+`100`, as seen in `DO_CREATE`. So we can't actually create a note in
+`kmalloc-cg-1k`.
 
 ### `sk_buff`
 
-After researching more, I realize that `sk_buff` (or more precisely, `sk_buff.head`) is very commonly used to attack
-`pipe_buf` because of its unique structure. Here's what it looks like:
+After researching more, I realize that `sk_buff` (or more precisely,
+`sk_buff.head`) is very commonly used to attack `pipe_buf` because of its unique
+structure. Here's what it looks like:
 
 ```c
 struct sk_buff {
@@ -1289,10 +1337,12 @@ struct sk_buff {
  */
 ```
 
-I couldn't find the allocate code for `sk_buff.head`, but it is allocated in `kmalloc-cg-1k` as well. The unique thing
-about this struct is that the user input actually appears at the top of the struct, while metadata is found at the
-bottom. This is really useful for our `pipe_buf` overwrite, since `pipe_buf` metadata is found at the top of its struct,
-so we can overwrite the metadata of `pipe_buf` easily!
+I couldn't find the allocate code for `sk_buff.head`, but it is allocated in
+`kmalloc-cg-1k` as well. The unique thing about this struct is that the user
+input actually appears at the top of the struct, while metadata is found at the
+bottom. This is really useful for our `pipe_buf` overwrite, since `pipe_buf`
+metadata is found at the top of its struct, so we can overwrite the metadata of
+`pipe_buf` easily!
 
 To initialize an `sk_buff` and write data to head:
 
@@ -1303,27 +1353,33 @@ socketpair(AF_UNIX, SOCK_STREAM, 0, sk_socket);
 write(sk_socket[0], payload, sizeof(payload));
 ```
 
-Now, we can spray and allocate `sk_buff.head` over `pipe_buf`, overwriting `pipe_buf.ops` to our desired vtable. We can
-put the fake vtable inside `sk_buff.head` as well, since we already know its address from `kmalloc-cg-1k` kheap leak.
+Now, we can spray and allocate `sk_buff.head` over `pipe_buf`, overwriting
+`pipe_buf.ops` to our desired vtable. We can put the fake vtable inside
+`sk_buff.head` as well, since we already know its address from `kmalloc-cg-1k`
+kheap leak.
 
 ## Step 6: ROP chain
 
-Now that our `pipe_buf` is set up, we can start planning our ROP chain to priv escalate! We will be using `ops.release`
-to control RIP, which is called when `pipe_buf` is closed. 
+Now that our `pipe_buf` is set up, we can start planning our ROP chain to priv
+escalate! We will be using `ops.release` to control RIP, which is called when
+`pipe_buf` is closed. 
 
 ```c
 void (*release)(struct pipe_inode_info *, struct pipe_buffer *);
 ```
 
-As we can see, the second argument to `release`, in `rsi`, will be the address of the `pipe_buf` that we're freeing.
-Thus, `rsi` is quite a good register to focus on to stack pivot, since we can control the contents of the address at
-which it's pointing to. This is why we can't use `msg_msg` and need to use `sk_buff` instead, because we don't have
-control over the start of `msg_msg` and thus can't make a good fake stack.
+As we can see, the second argument to `release`, in `rsi`, will be the address
+of the `pipe_buf` that we're freeing. Thus, `rsi` is quite a good register to
+focus on to stack pivot, since we can control the contents of the address at
+which it's pointing to. This is why we can't use `msg_msg` and need to use
+`sk_buff` instead, because we don't have control over the start of `msg_msg` and
+thus can't make a good fake stack.
 
 ### Stack pivot 1
 
-Let's find a good stack pivot gadget first. Gadgets that end with `ret` are not suitable, because our stack isn't setup
-yet, so we can't ROP properly. `call` or `jmp` on a register we control like `rsi` are the best.
+Let's find a good stack pivot gadget first. Gadgets that end with `ret` are not
+suitable, because our stack isn't setup yet, so we can't ROP properly. `call` or
+`jmp` on a register we control like `rsi` are the best.
 
 ```
 0xffffffff81556dc6 : push rsi ; jmp qword ptr [rsi + 0x39]
@@ -1331,10 +1387,11 @@ yet, so we can't ROP properly. `call` or `jmp` on a register we control like `rs
 0xffffffff81602d23 : push rsi ; jmp qword ptr [rsi - 0x7f]
 ```
 
-There are actually a lot more suitable gadgets, but these are the most straightforward. `[rsi + 0x39]` is under our
-control, so we can put a second gadget there. The point of `push rsi` is to put a pointer we control at the top of the
-original stack, so our second gadget can simply be `pop rsp` which will change `rsp` to the saved value of `rsi`, and
-complete the stack pivot.
+There are actually a lot more suitable gadgets, but these are the most
+straightforward. `[rsi + 0x39]` is under our control, so we can put a second
+gadget there. The point of `push rsi` is to put a pointer we control at the top
+of the original stack, so our second gadget can simply be `pop rsp` which will
+change `rsp` to the saved value of `rsi`, and complete the stack pivot.
 
 ```
 0xffffffff81135dff : pop rsp ; ret
@@ -1356,12 +1413,15 @@ gef> x/200gx 0xffff8881026ca400
 0xffff8881026ca6a0:     0x0000000000000000      0x0000000000000000
 ```
 
-After pivoting stack to `+0x00`, the program will read the next ROP gadget from `+0x00`, and continue sequentially from
-there. We don't have a lot of space on this new stack, because at `+0x10`, the pointer to our vtable is still there, and
-at `+0x39`, we put the gadget called in `jmp qword ptr [rsi + 0x39]`, and we must remember not to overwrite these while
-writing our final ROP chain. The best solution to avoid conflict with these pointers is to pivot once more, now to
-somewhere further down the stack where we have more space. Luckily, we should have enough space to do this, and we'll do
-the stack pivot at `+0x18`. To get past `+0x10`, we can do a small trick: just `pop rdi`!
+After pivoting stack to `+0x00`, the program will read the next ROP gadget from
+`+0x00`, and continue sequentially from there. We don't have a lot of space on
+this new stack, because at `+0x10`, the pointer to our vtable is still there,
+and at `+0x39`, we put the gadget called in `jmp qword ptr [rsi + 0x39]`, and we
+must remember not to overwrite these while writing our final ROP chain. The best
+solution to avoid conflict with these pointers is to pivot once more, now to
+somewhere further down the stack where we have more space. Luckily, we should
+have enough space to do this, and we'll do the stack pivot at `+0x18`. To get
+past `+0x10`, we can do a small trick: just `pop rdi`!
 
 So our first stack will look like this:
 
@@ -1373,7 +1433,8 @@ So our first stack will look like this:
 +0x20: <pipe_buf + 0x50>
 ```
 
-Now our second stack will point to `+0x50`. Here we have lots of space, so let's start our final ROP chain!
+Now our second stack will point to `+0x50`. Here we have lots of space, so let's
+start our final ROP chain!
 
 ### Final ROP chain
 
@@ -1383,18 +1444,23 @@ We want to finally call this:
 commit_creds(prepare_kernel_cred(&init_task));
 ```
 
-Due to recent changes in kernel, it's no longer `prepare_kernel_cred(0)` as seen in older writeups.
+Due to recent changes in kernel, it's no longer `prepare_kernel_cred(0)` as seen
+in older writeups.
 
-Then because of KPTI, we need to jump to our shell function safely. In this version of kernel, the usual gadget
-`swapgs_restore_regs_and_return_to_usermode+22` is slightly different, so I can't really use it. So we need `swapgs ;
-ret` and `iretq ; ret` gadgets. ROPgadget couldn't locate these, but I used `objdump -d vmlinux` to find them. 
+Then because of KPTI, we need to jump to our shell function safely. In this
+version of kernel, the usual gadget
+`swapgs_restore_regs_and_return_to_usermode+22` is slightly different, so I
+can't really use it. So we need `swapgs ; ret` and `iretq ; ret` gadgets.
+ROPgadget couldn't locate these, but I used `objdump -d vmlinux` to find them. 
 
-Also, I don't actually know how to return properly to userland from `iretq` cos I keep getting SIGSEGV (after
-successfully pivoting back to userland). But another way is simply to register a SIGSEGV handler in our program and set
-it to `get_shell`.
+Also, I don't actually know how to return properly to userland from `iretq` cos
+I keep getting SIGSEGV (after successfully pivoting back to userland). But
+another way is simply to register a SIGSEGV handler in our program and set it to
+`get_shell`.
 
-One more part: we need to actually save the state of the program even before doing our ROP, so at the start of the
-exploit we add this (and also define our `get_shell` function):
+One more part: we need to actually save the state of the program even before
+doing our ROP, so at the start of the exploit we add this (and also define our
+`get_shell` function):
 
 ```c
 void save_state() {
@@ -1435,7 +1501,8 @@ Lastly, our second stack:
 +0xa0: user_ss
 ```
 
-After constructing this, we spray `sk_buff` onto `pipe_buf`, release all `pipe_buf` and should get root!
+After constructing this, we spray `sk_buff` onto `pipe_buf`, release all
+`pipe_buf` and should get root!
 
 ## Step 7: Running the exploit
 
@@ -1907,10 +1974,14 @@ output.
 
 ## Conclusion
 
-I really loved solving this challenge and learnt a lot from it. Kernel pwn has a much larger scope than regular pwn
-because of the sheer number of structs we can now exploit, and the complexity of our final target not just being
-`system("/bin/sh")` thus requiring a ROP chain and stack pivot. And because of the larger scope, I think it'll be very
-useful to have a collection of kernel structs, including their layout, `kmalloc` cache, initialization, usage and
-freeing, and how they can interact and synergize with other structs (like `pipe_buf` and `sk_buff`!). I found this to be
-the main obstacle in solving the challenge during the CTF, because of my lack of knowledge of and experience with kernel
-pwn. If I have the time and expertise, I may start to compile this and post it on my blog as well.
+I really loved solving this challenge and learnt a lot from it. Kernel pwn has a
+much larger scope than regular pwn because of the sheer number of structs we can
+now exploit, and the complexity of our final target not just being
+`system("/bin/sh")` thus requiring a ROP chain and stack pivot. And because of
+the larger scope, I think it'll be very useful to have a collection of kernel
+structs, including their layout, `kmalloc` cache, initialization, usage and
+freeing, and how they can interact and synergize with other structs (like
+`pipe_buf` and `sk_buff`!). I found this to be the main obstacle in solving the
+challenge during the CTF, because of my lack of knowledge of and experience with
+kernel pwn. If I have the time and expertise, I may start to compile this and
+post it on my blog as well.
