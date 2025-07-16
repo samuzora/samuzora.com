@@ -1,3 +1,25 @@
+"2025":
+  - name: x3CTF 2025
+    date: 2025-01-27
+    rank: 8th place
+
+  - name: Nullcon Goa HackIM 2025
+    date: 2025-02-02
+    rank: 7th place
+
+  - name: Codegate Preliminary (Open)
+    date: 2025-03-29
+    rank: 20th place
+
+  - name: b01lers CTF 2025
+    date: 2025-04-21
+    rank: 15th place
+
+  - name: GreyCTF Finals
+    date: 2025-06-28
+    rank: 1st place
+    type: ctf-first-place
+
 "2024": 
   - name: Lag and Crash 4.0
     date: 2024-03-13
@@ -15,7 +37,7 @@
     rank: 3rd place
     type: ctf-third-place
 
-  - name: Codegate Junior Quals
+  - name: Codegate Preliminary (Junior)
     date: 2024-06-01
     rank: 5th place
 
@@ -62,7 +84,7 @@
     rank: 3rd place
     type: ctf-third-place
 
-  - name: Codegate Junior
+  - name: Codegate Finals (Junior)
     date: 2023-08-24
     rank: 7th place
 
@@ -97,7 +119,7 @@
     rank: 2nd place
     type: ctf-second-place
 
-  - name: Codegate Junior
+  - name: Codegate Finals (Junior)
     date: 2022-11-07
     rank: 4th place
 
@@ -111,7 +133,7 @@
     rank: 1st place
     type: ctf-first-place
 
-  - name: Sieberrsec
+  - name: Sieberrsec 2021
     date: 2021-12-27
     rank: 3rd place
     type: ctf-third-place
