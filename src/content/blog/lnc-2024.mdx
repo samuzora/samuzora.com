@@ -7,7 +7,7 @@ tags:
     - pwn
 ---
 
-import Challenge from "@/components/Challenge.vue";
+import Challenge from "@components/Challenge.vue";
 
 I participated with Blahaj in Lag and Crash 2024 this year and got 1st place :)
 
@@ -526,7 +526,7 @@ struct chemical {
     uint64_t cas;
     uint64_t idx;
     struct list_head list;
-    uint64_t note_size; 
+   uint64_t note_size; 
     uint64_t note_addr;
 };
 ```
@@ -885,7 +885,7 @@ gef> x/32gx 0xffff888101dbde00
 ```
 
 Anyway, without fully understanding the struct, we still can see that we can leak `kbase` from the function pointer at
-`+0x18`, which is pretty useful. When we free the object, we get something like this:
+`+0x28`, which is pretty useful. When we free the object, we get something like this:
 
 ```
 gef> x/32gx 0xffff888101dbde00
@@ -917,7 +917,7 @@ So if `timerfd_ctx` overlaps UAF object and is freed, we can achieve the followi
 
 Pretty useful!
 
-I think if we had some way to edit chemical, we could have ended here after re-allocating the `timerfd_ctx`, as `+0x18`
+I think if we had some way to edit chemical, we could have ended here after re-allocating the `timerfd_ctx`, as `+0x28`
 holds a function pointer which will be called when the timer expires, and we can simply edit the chemical to change this
 pointer. However, since we can't, we need to explore further.
 
