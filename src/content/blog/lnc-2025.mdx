@@ -661,6 +661,12 @@ mapped with `GFP_HIGHUSER{:c}` in `pipe_write(){:c}`, and high addresses don't
 have a permanent virtual mapping in kernel according to the documentation linked
 above.
 
+> Errata: even though the page is allocated using `GFP_HIGHUSER`, there is no
+> high memory in x86-64, because the kernel is able to map all physical
+> addresses to virtual address space, unlike in x86-32. Therefore, the page
+> falls back to `ZONE_NORMAL`, which is a physical page that has a permanent
+> virtual address mapped to it in the kernel.
+
 ```c
 static ssize_t
 pipe_write(struct kiocb *iocb, struct iov_iter *from)
@@ -677,6 +683,11 @@ pipe_write(struct kiocb *iocb, struct iov_iter *from)
   // ...
 }
 ```
+
+Also, [bata24/gef](https://github.com/bata24/gef) has a command page2virt that
+can translate a `struct page *` to a virtual address. (also `page2phys`,
+`virt2page` and `phys2page`). Using this, we can resolve the virtual address of
+the page and view its contents.
 
 ## `struct page{:c}` and the SLUB allocator
 

