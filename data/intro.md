@@ -1,4 +1,4 @@
-Hi! Welcome to my blog~ You can find ctf writeups, vuln research posts, and
+Hi! Welcome to my blog! You can find my ctf writeups, vuln research posts, and
 other cybersecurity-related stuff here!
 
 I'm Lucas, a 19-year-old Singaporean currently serving in National Service. I
