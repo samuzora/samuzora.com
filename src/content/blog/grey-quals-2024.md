@@ -5,6 +5,7 @@ excerpt: Grey Quals 2024 - Baby Fmtstr and The Motorola 2 - wasm pwn
 category: writeups
 tags:
     - pwn
+    - wasm
 ---
 
 Grey CTF Quals 2024 took place on 27 April. I played with slight_smile and got 3rd place locally, qualifying for the
