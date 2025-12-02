@@ -34,6 +34,11 @@
     rank: 3rd place (Open)
     type: ctf-third-place
 
+  - name: LakeCTF 25/26 Quals
+    date: 2025-11-29
+    rank: 2nd place
+    type: ctf-second-place
+
 "2024": 
   - name: Lag and Crash 4.0
     date: 2024-03-13
