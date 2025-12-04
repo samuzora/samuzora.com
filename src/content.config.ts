@@ -13,4 +13,13 @@ const blog = defineCollection({
   })
 });
 
-export const collections = { blog };
+const challs = defineCollection({
+  loader: glob({ pattern: "**/*.{md,mdx}", base: "./src/content/challs" }),
+  schema: z.object({
+    title: z.string(),
+    flag: z.string(),
+    files: z.array(z.object({name: z.string(), url: z.string()}))
+  })
+});
+
+export const collections = { blog, challs };

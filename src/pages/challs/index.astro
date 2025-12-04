@@ -1,0 +1,39 @@
+---
+import Layout from "@layouts/Layout.astro";
+import Challenge from "@components/Challenge.vue";
+import { getCollection, render } from "astro:content";
+
+const challs = await Promise.all(
+  (await getCollection("challs")).map(async chall => {
+    const { Content } = await render(chall);
+    return {
+      data: chall.data,
+      Content
+    }
+  })
+)
+console.log(challs)
+
+// const { Content, headings, remarkPluginFrontmatter } = await render(post);
+---
+
+<Layout title={"Challenge archive"}>
+  <div class="relative w-full">
+    <h3 class="m-auto text-center mb-3 px-4">My (cooler) authored challs</h3>
+    <div class="pt-4 mx-auto md:pt-10 min-w-[100px] w-[350px] md:w-[748px] lg:w-[904px] xl:w-[1180px] grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+      {challs.map(chall => (
+      <Challenge 
+        class="bg-[--primary-bg-transparent-80] rounded-md" 
+        title={chall.data.title}
+        flag={chall.data.flag}
+        files={chall.data.files}
+      >
+        <div class="markdown-body">
+          <chall.Content />
+        </div>
+      </Challenge>
+
+      ))}
+    </div>
+  </div>
+</Layout>
