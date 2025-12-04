@@ -32,7 +32,7 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
 ---
 
 <Layout title={post.data.title}>
-  <div class="relative flex justify-center pt-[80px] md:pt-[125px] px-6 md:px-32 mx-auto">
+  <div class="relative flex justify-center px-6 md:px-32 mx-auto">
     {
     // ToC for lg and above - appears on the side of content
     headings.length > 0 && 

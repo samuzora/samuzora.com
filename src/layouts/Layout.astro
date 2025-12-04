@@ -119,20 +119,24 @@ const config = {
           <div class="my-auto hidden md:block text-[28px] font-[500]">
             <a href="/">samuzora.com</a>
           </div>
-          <div class="flex gap-10 text-[20px] my-auto">
-            <Nav active={Astro.url.pathname === "/" ? true : undefined} href="/">
+          <div class="flex gap-4 sm:gap-5 md:gap-8 lg:gap-10 text-[20px] my-auto">
+            <Nav active={Astro.url.pathname === "/"} href="/">
               <i class="fa-regular fa-home"></i>
               HOME
             </Nav>
-            <Nav active={Astro.url.pathname.startsWith("/browse") ? true : undefined } href="/browse">
+            <Nav active={Astro.url.pathname.startsWith("/browse")} href="/browse">
               <i class="fa-regular fa-archive"></i>
               BLOG
+            </Nav>
+            <Nav active={Astro.url.pathname.startsWith("/challs")} href="/challs">
+              <i class="fa-regular fa-puzzle-piece"></i>
+              CHALLS
             </Nav>
           </div>
         </div>
 
         <!-- main content -->
-        <div transition:animate="slide">
+        <div class="pt-[100px] md:pt-[125px]" transition:animate="slide">
           <slot />
         </div>
 
