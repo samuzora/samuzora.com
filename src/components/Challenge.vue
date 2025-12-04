@@ -9,14 +9,15 @@ const props = defineProps<{
     url: String
   }[]
   flag?: string
+  class?: string
 }>()
 </script>
 
 <template>
-  <div class="my-4 border border-[--secondary-bg]">
-    <div class="border-b border-[--secondary-bg] text-lg pb-4 mt-4">
+  <div class="border border-[--secondary-bg]">
+    <div v-if="typeof(props.solves) === 'number'" class="border-b border-[--secondary-bg] text-lg pb-4 mt-4">
       <span class="p-4 border-r border-[--secondary-bg] text-[--second-text-color]">
-        {{ props.solves ?? "?" }} solves
+        {{ props.solves }} solves
       </span>
     </div>
 
@@ -45,14 +46,14 @@ const props = defineProps<{
         </span>
       </a>
     </div>
-    <div class="flex mx-6 mt-4 mb-6 justify-between gap-3">
+    <div class="flex mx-4 mt-4 mb-6 justify-between gap-3">
       <input 
         readonly
-        class="p-2 grow border border-[--secondary-bg] rounded bg-[--tertiary-bg] outline-none"
-        v-bind:value="props.flag ?? 'FLAG{???}'"
+        class="p-2 min-w-0 grow border border-[--secondary-bg] rounded bg-[--tertiary-bg] outline-none"
+        :class="{ 'text-[--fourth-text-color]': !props.flag }"
+        v-bind:value="props.flag ?? 'Enter flag...'"
       />
-      <span class="px-3 py-2 bg-[--primary-color] rounded text-[--primary-bg] hover:bg-[--primary-color-transparent-60]
-        transition-all cursor-pointer">
+      <span class="px-3 py-2 bg-[--primary-color] rounded text-[--primary-bg] hover:bg-[--primary-color-transparent-60] transition-all cursor-pointer">
         Submit
       </span>
     </div>
