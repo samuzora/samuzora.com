@@ -1,0 +1,282 @@
+---
+title: LakeCTF 25/26 Qualifers
+date: 2025-12-02
+category: writeups
+excerpt: Writeups for unlink-this and still-not-malloc
+tags:
+  - pwn
+draft: true
+---
+import Challenge from "@components/Challenge.vue";
+
+# unlink-this
+
+<Challenge
+  title="Unlink THIS!"
+  solves={22}
+  flag="EPFL{1_sw34r_br0_0n3_m0r3_Unl1nk_1s_4ll_1_n33d}"
+>
+In computer science, a doubly linked list is a linked data structure that
+consists of a set of sequentially linked records called nodes.
+</Challenge>
+
+In this challenge, we have a heap overflow in the 0x140 region of the jemalloc
+allocator, and a vtable-esque struct in 0x20. Below is the source for the
+challenge.
+
+```c
+#include <stdio.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <unistd.h> 
+#include <string.h>
+#include <errno.h>
+#include <jemalloc/jemalloc.h>
+
+typedef struct crypto_thing{
+    size_t sig_counter;
+    int (*sign)(void* crypto_thing, char* buf, size_t len, char* out);
+    char* (*allocate_sig)(); 
+    void (*destroy_sig)(char* sig); 
+}crypto_thing;
+
+typedef struct some_thing{
+    size_t next;
+    size_t prev;
+    int session_id;
+    size_t challenge_len;
+    char challenge[0x100];
+}some_thing;
+
+size_t nr_things = 0;
+long list_inited = 0;
+some_thing* head_next;
+some_thing* head_prev;
+crypto_thing* crypto;
+
+int gen_session(){
+   return random(); 
+}
+
+size_t get_number() {
+  size_t n = 0;
+  scanf("%zu%*c",&n);
+  return n;
+}
+
+void linkin(some_thing* new){
+    if(!list_inited){
+        list_inited = 1;
+        head_next = &head_next;
+        head_prev = &head_next;
+    }
+    new->next = &head_next;
+    new->prev = head_prev;
+    head_prev->next = new;
+    head_prev = new; 
+}
+
+void unlinnk(some_thing* old){
+    some_thing* next = old->next;
+    some_thing* prev = old->prev;
+    prev->next = old->next;
+    next->prev = old->prev;
+    old->prev = 0xdeadbeef;
+    old->next = 0xdeadbeef;
+}
+
+some_thing* find_thing(int session_id){
+    some_thing* curr = head_next;
+    while(curr != &head_next){
+        if(curr->session_id == session_id) return curr;
+        curr = curr->next;
+    }
+    return NULL;
+}
+
+void create(){
+    if(nr_things>10){
+        puts("too many things!");
+        return;
+    }
+    puts("input size?");
+    char in[0x400];
+    memset(in, 0, 0x400);
+    size_t size = get_number();         
+    if(size > 0x400){
+        return;
+    }
+    puts("data?");
+    read(0, in, size);
+    some_thing* newthing = (some_thing*)malloc(sizeof(some_thing));
+    newthing->session_id = gen_session();
+    memcpy(newthing->challenge, in, strlen(in));
+    newthing->challenge_len = (strlen(in) > 0x100) ? 0x100 : strlen(in); 
+    linkin(newthing);
+    nr_things++;
+    printf("new session: %d\n", newthing->session_id);
+}
+
+void sign(){
+    puts("session id?");
+    int session_id = (int)get_number();
+    some_thing* thing = find_thing(session_id);
+    if(thing == NULL){
+        return;
+    }
+    char* sig_buf = crypto->allocate_sig();
+    crypto->sign(crypto, thing->challenge, thing->challenge_len, sig_buf); 
+    puts("challenge: ");
+    puts("=============================");
+    write(1, thing->challenge, thing->challenge_len);
+    puts("\n=============================");
+    puts("signature: ");
+    puts("=============================");
+    write(1, sig_buf, 0x100); 
+    puts("\n=============================");
+    unlinnk(thing);
+    free(thing);
+    nr_things--;
+    crypto->destroy_sig(sig_buf);
+}
+
+int crypto_sign(crypto_thing* self, char* buf, size_t len, char* out){
+    self->sig_counter += 1;
+    memset(out, 0, 0x100);
+    //TODO
+    return 0;
+} 
+
+void menu(){
+    puts("1: create something");
+    puts("2: do sometehing with the thing");
+}
+
+int main(){
+    srand((unsigned)time(NULL));
+    setbuf(stdin,NULL);
+    setbuf(stdout,NULL);
+    setbuf(stderr,NULL); 
+    crypto = (crypto_thing*)malloc(sizeof(crypto_thing));
+    crypto->sig_counter = 0;
+    crypto->sign = crypto_sign;
+    crypto->allocate_sig = malloc;
+    crypto->destroy_sig = free;
+    while(1){
+        menu();
+        switch(get_number()){
+            case 1: {
+                create();
+                break;
+            } 
+            case 2: {
+                sign();
+                break;
+            } 
+            default: {
+                puts("not an option..");
+                break;
+            }
+        }
+    } 
+}
+```
+
+Each "some_thing" is a node in a doubly-linked list, and contains, in addition
+to the next and prev pointers, a randomly-generated integer `session_id{:c}` and
+the length of the `challenge{:c}` field, followed by the `challenge{:c}` field
+itself.
+
+```c 
+typedef struct some_thing{
+    size_t next;
+    size_t prev;
+    int session_id;
+    size_t challenge_len;
+    char challenge[0x100];
+}some_thing;
+```
+
+The heap overflow exists in the create function:
+
+```c
+void create(){
+    if(nr_things>10){
+        puts("too many things!");
+        return;
+    }
+    puts("input size?");
+    char in[0x400];
+    memset(in, 0, 0x400);
+    size_t size = get_number();         
+    if(size > 0x400){
+        return;
+    }
+    puts("data?");
+    read(0, in, size);
+    some_thing* newthing = (some_thing*)malloc(sizeof(some_thing));
+    newthing->session_id = gen_session();
+    memcpy(newthing->challenge, in, strlen(in));
+    newthing->challenge_len = (strlen(in) > 0x100) ? 0x100 : strlen(in); 
+    linkin(newthing);
+    nr_things++;
+    printf("new session: %d\n", newthing->session_id);
+}
+```
+
+We can specify an input length of up to 0x400, but the malloc size is still
+constant at 0x120, the size of the `some_thing{:c}` struct, and the challenge
+field has a constant size of 0x100. It's important to note that the length of
+copy into the struct is calculated by `strlen{:c}`, so we cannot put any null
+bytes in our overflow, which will be quite troublesome later on.
+
+In the sign function, we interface with the `crypto{:c}` vtable that
+pre-initialized. The functions in the vtable don't do much, so it's immediately
+obvious that this function will be used for RCE by controlling the fields in the
+vtable.
+
+```c
+void sign(){
+    puts("session id?");
+    int session_id = (int)get_number();
+    some_thing* thing = find_thing(session_id);
+    if(thing == NULL){
+        return;
+    }
+    char* sig_buf = crypto->allocate_sig();
+    crypto->sign(crypto, thing->challenge, thing->challenge_len, sig_buf); 
+    puts("challenge: ");
+    puts("=============================");
+    write(1, thing->challenge, thing->challenge_len);
+    puts("\n=============================");
+    puts("signature: ");
+    puts("=============================");
+    write(1, sig_buf, 0x100); 
+    puts("\n=============================");
+    unlinnk(thing);
+    free(thing);
+    nr_things--;
+    crypto->destroy_sig(sig_buf);
+}
+```
+
+In addition, after a `some_thing{:c}` is signed, it is removed from the
+linked list and freed. We can allocate up to 10 nodes at a time.
+
+## Write primitive
+
+Unlike libc's malloc, chunks in jemalloc don't hold metadata. Instead, metadata
+is stored in a header section of an arena. The heap overflow thus isn't as
+useful as it would be in ptmalloc.
+
+# still-not-malloc
+
+<Challenge
+  title="still-not-malloc"
+  solves={11}
+  flag="EPFL{ST1LL_NOT_MALLOC_ST1LL_BU99Y_ST1LL_P4IN}"
+>
+so this year I wrote another terrible allocator whose sole purpose is to be pwned
+</Challenge>
