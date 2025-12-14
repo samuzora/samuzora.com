@@ -24,12 +24,12 @@ const props = defineProps<{
     <div class="my-6">
       <h4 class="text-center">{{ props.title }}</h4>
     </div>
-    <div class="mx-4">
+    <div class="mx-4 mb-6">
       <p>
         <slot />
       </p>
     </div>
-    <div class="flex mx-4 my-6 gap-3" v-if="props.files?.length">
+    <div class="flex mt-auto mx-4 gap-3" v-if="props.files?.length">
       <a
         v-for="file in props.files"
         v-bind:key="file.name"
@@ -46,7 +46,7 @@ const props = defineProps<{
         </span>
       </a>
     </div>
-    <div class="flex mx-4 mt-auto mb-6 justify-between gap-3">
+    <div class="flex mx-4 mt-6 mb-6 justify-between gap-3">
       <input 
         readonly
         class="p-2 min-w-0 grow border border-[--secondary-bg] rounded bg-[--tertiary-bg] outline-none"

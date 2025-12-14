@@ -6,6 +6,6 @@ files:
       url: "https://github.com/samuzora/filedump/releases/download/hacktm-ctf-2023/hacktm-23-blog.zip"
 ---
 
-PHP deserialization to get RCE by calling arbitrary 
-statements in SQLite engine and creating a fake database file,
-containing PHP webshell inside
+Using PHP deserialization, we craft an object that when extracted, exploits the
+provided SQLite database interface to create a new SQLite database file. This
+file contains our PHP webshell hence leading to RCE.
