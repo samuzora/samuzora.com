@@ -14,7 +14,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div class="border border-[--secondary-bg]" :class="props.class">
+  <div class="flex flex-col align-top border border-[--secondary-bg]" :class="props.class">
     <div v-if="typeof(props.solves) === 'number'" class="border-b border-[--secondary-bg] text-lg pb-4 mt-4">
       <span class="p-4 border-r border-[--secondary-bg] text-[--second-text-color]">
         {{ props.solves }} solves
@@ -22,14 +22,14 @@ const props = defineProps<{
     </div>
 
     <div class="my-6">
-      <h3 class="text-center">{{ props.title }}</h3>
+      <h4 class="text-center">{{ props.title }}</h4>
     </div>
-    <div class="mx-6">
+    <div class="mx-4">
       <p>
         <slot />
       </p>
     </div>
-    <div class="flex mx-6 my-6 gap-3" v-if="props.files?.length">
+    <div class="flex mx-4 my-6 gap-3" v-if="props.files?.length">
       <a
         v-for="file in props.files"
         v-bind:key="file.name"
@@ -46,7 +46,7 @@ const props = defineProps<{
         </span>
       </a>
     </div>
-    <div class="flex mx-4 mt-4 mb-6 justify-between gap-3">
+    <div class="flex mx-4 mt-auto mb-6 justify-between gap-3">
       <input 
         readonly
         class="p-2 min-w-0 grow border border-[--secondary-bg] rounded bg-[--tertiary-bg] outline-none"
