@@ -188,7 +188,7 @@ a:hover {
     }
 
     strong {
-        font-weight: 500;
+        font-weight: 1000;
     }
 
     em {
@@ -202,6 +202,7 @@ a:hover {
 
     code {
         font-family: "Ubuntu Mono", monospace;
+        font-weight: 500;
     }
 
     [data-rehype-pretty-code-figure] {
