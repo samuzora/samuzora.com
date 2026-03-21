@@ -7,3 +7,11 @@
   description: RCE in Squirrelly <=9.0.0
   link: https://nvd.nist.gov/vuln/detail/CVE-2024-40453
   writeup: /posts/cve-2024-40453
+
+- id: CVE-2025-15607
+  description: Command injection in TP-Link MCSD service (Archer AX53 router)
+  link: https://www.cve.org/cverecord?id=CVE-2025-15607
+
+- id: CVE-2025-15608
+  description: Arbitrary free in Onemesh service (Archer AX53 Router)
+  link: https://www.cve.org/cverecord?id=CVE-2025-15608

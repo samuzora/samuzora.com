@@ -78,10 +78,12 @@ import TypedWrapper from "@components/TypedWrapper.vue";
             </h3>
             {cve.description}
             <div class="absolute bottom-5 right-5">
-              <a href={cve.writeup}>
-                Read more
-                <i class="fa-regular fa-angle-right"></i>
-              </a>
+              {cve.writeup && 
+                <a href={cve.writeup}>
+                  Read more
+                  <i class="fa-regular fa-angle-right"></i>
+                </a>
+              }
             </div>
           </Card>
           ))
