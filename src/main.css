@@ -182,13 +182,15 @@ a:hover {
     }
 
     p {
-        font-weight: 200;
+        font-weight: 1000;
         margin-bottom: 0.4rem;
         margin-top: 0.4rem;
     }
 
     strong {
-        font-weight: 1000;
+        color: var(--second-text-color);
+        font-size: 1.1rem;
+        /* font-weight: 1000; */
     }
 
     em {
