@@ -96,7 +96,7 @@ html {
 h1, h2, h3, h4, h5, h6 {
     color: var(--second-text-color);
     line-height: 2rem;
-    font-weight: 700 !important;
+    font-weight: 400 !important;
 }
 
 h1 {
@@ -143,9 +143,11 @@ a:hover {
 /* markdown styling */
 
 .markdown-body {
+    font-weight: 300;
+
     h1, h2, h3, h4, h5, h6 {
+        font-weight: 0;
         color: var(--second-text-color);
-        font-weight: 700;
     }
 
     h1 {
@@ -182,7 +184,6 @@ a:hover {
     }
 
     p {
-        font-weight: 1000;
         margin-bottom: 0.4rem;
         margin-top: 0.4rem;
     }
@@ -190,7 +191,6 @@ a:hover {
     strong {
         color: var(--second-text-color);
         font-size: 1.1rem;
-        /* font-weight: 1000; */
     }
 
     em {
@@ -375,34 +375,19 @@ a:hover {
         width: 100%;
         overflow: auto;
         margin-bottom: 1.2rem;
-        box-shadow: var(--redefine-box-shadow-flat);
         border-radius: 5px;
+        table-layout: auto;
 
         thead {
             th {
-                border-bottom: 1px solid var(--shadow-color-1);
+                font-weight: 400;
+                border-bottom: 1px solid var(--secondary-bg);
                 background-color: var(--third-background-color) !important;
-            }
-
-            th:first-child {
-                border-top-left-radius: 5px;
-            }
-
-            th:last-child {
-                border-top-right-radius: 5px;
+                color: var(--second-text-color);
             }
         }
 
         tbody {
-            tr:last-child {
-                td:first-child {
-                    border-bottom-left-radius: 5px;
-                }
-
-                td:last-child {
-                    border-bottom-right-radius: 5px;
-                }
-            }
         }
 
         td, th {
@@ -416,11 +401,16 @@ a:hover {
 
         tr {
             background-color: var(--primary-bg);
+            border-bottom: 1px solid var(--secondary-bg)
         }
 
-        tr:nth-child(2n) {
-            background-color: var(--secondary-bg);
+        tr:last-child {
+            border-bottom: none;
         }
+
+        /* tr:nth-child(2n) { */
+        /*     background-color: var(--secondary-bg); */
+        /* } */
     }
 
     mjx-container {
