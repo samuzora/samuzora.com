@@ -72,22 +72,22 @@ const { categories, years, posts } = Astro.props;
         {posts.map((post: any) => (
         <Card>
           <div class="pb-3">
-            <a class="text-2xl font-bold" href={"/posts/" + post.id}>{post.data.title}</a>
+            <a class="text-2xl" href={"/posts/" + post.id}>{post.data.title}</a>
           </div>
-          <div class="pb-3">
+          <div class="pb-3 font-[100]">
             {post.data.excerpt || (post.body.substring(0, 100) + "...")}
           </div>
           <div class="flex justify-between text-sm">
             <div class="flex justify-start gap-5 grow">
-              <div class="flex gap-2 items-center text-[--fourth-text-color] font-bold">
+              <div class="flex gap-2 items-center text-[--fourth-text-color]">
                 <i class="fa-regular fa-calendar"></i>
                 {post.data.date.toLocaleDateString("en-SG", { year: "2-digit", month: "short", day: "2-digit" })}
               </div>
-              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color] font-bold">
+              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color]">
                 <i class="fa-regular fa-folder"></i>
                 {post.data.category}
               </div>
-              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color] font-bold">
+              <div class="hidden md:flex gap-2 items-center text-[--fourth-text-color]">
                 <i class="fa-regular fa-tags"></i>
                 {post.data.tags.join(" | ")}
               </div>

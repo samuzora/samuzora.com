@@ -3,7 +3,7 @@ const props = defineProps(["post", "remarkPluginFrontmatter"]);
 </script>
 
 <template>
-  <div class="pt-5 pb-5 text-center text-3xl lg:text-4xl font-black">
+  <div class="pt-5 pb-5 text-center text-3xl lg:text-4xl">
     {{post.data.title}}
   </div>
   <div>

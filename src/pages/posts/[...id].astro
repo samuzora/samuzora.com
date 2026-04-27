@@ -37,7 +37,7 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
     // ToC for lg and above - appears on the side of content
     headings.length > 0 && 
     <div class="sticky lg:w-[125px] xl:max-w-[200px] self-start hidden lg:block mr-10 top-[125px]">
-      <div class="text-xl font-bold text-[--second-text-color] py-2">
+      <div class="text-xl text-[--second-text-color] py-2">
         Contents
       </div>
       <div class="h-[calc(100vh-250px)]" ss-container>
@@ -56,7 +56,7 @@ const { Content, headings, remarkPluginFrontmatter } = await render(post);
             headings.length > 0 &&
             <details open class="lg:hidden group p-5 mb-5 border border-[--secondary-bg] rounded-lg">
               <summary class="flex justify-between">
-                <div class="text-xl font-bold text-[--second-text-color] py-2">
+                <div class="text-xl text-[--second-text-color] py-2">
                   Contents
                 </div>
               <i class="transition-all my-auto text-sm text-white fa-regular fa-chevron-down group-open:rotate-180"></i>
