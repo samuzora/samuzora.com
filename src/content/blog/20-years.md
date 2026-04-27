@@ -15,7 +15,7 @@ been weighing on me, so much so that I sometimes spend hours on end mulling on
 it. But mulling is grossly insufficient, I've come to realize.
 
 Today marks my 20th birthday. It also marks the birth of my new resolve against
-something I should have acted against a lot earlier, and the death of all other
+something I should have acted on a lot earlier, and the death of all other
 desires that act contrary to this goal. This old friend of mine that grew up
 with me has become a monstrosity that I no longer recognize.
 
@@ -35,8 +35,10 @@ In March 2022, my journey as a CTF player began, after qualifying for Codegate
 Junior 2022. Before that, I wasn't really so obsessed with CTFs. But the thought
 of competing in my first overseas event brought this overpowering sense of
 determination in my life. I started to dive in all the pwn challs I could
-possibly find, in the hopes of winning the finals. Although I didn't win in
-November that year, the months of learning stayed with me and brought new
+possibly find, in the hopes of winning the finals.
+
+Although I didn't win in
+November 2022, the months of learning stayed with me and brought new
 purpose to my life. I was so grateful to the community for organizing these
 events called "CTFs". Without it, I might not have found any purpose in life,
 other than to continue the lonely pursuit for worthless accolades. In this
@@ -111,7 +113,7 @@ stagnant and lived life to its fullest.
 
 ---
 
-I felt the first effects of a rising generation of sloppers in my training in
+I felt the first effects of a rising generation of sloppers during my training in
 CDS. During this training period, many of the cadets were simply using ChatGPT,
 Gemini, Claude etc. to complete the training. Out of concern for their own
 learning, I advised them to engage in a little critical thinking on their own,
@@ -169,7 +171,9 @@ abolished. With agentic solvers, we are no better than little Python scripts
 that run `codex, solve this for me and make no mistake`, `claude, you are an
 expert ctf player. write an exploit for this challenge` in a while loop while
 downloading challenges for the agent to access. Can we really bear to degrade
-ourselves like that? I cannot.
+ourselves like that? 
+
+I cannot.
 
 # Death
 
