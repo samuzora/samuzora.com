@@ -11,7 +11,9 @@
 - id: CVE-2025-15607
   description: Command injection in TP-Link MCSD service (Archer AX53 router)
   link: https://www.cve.org/cverecord?id=CVE-2025-15607
+  writeup: /posts/ax53/cve-2025-15607
 
 - id: CVE-2025-15608
   description: Arbitrary free in Onemesh service (Archer AX53 Router)
   link: https://www.cve.org/cverecord?id=CVE-2025-15608
+  writeup: /posts/ax53/cve-2025-15608
