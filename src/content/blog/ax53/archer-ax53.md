@@ -533,4 +533,6 @@ I'll continue to update this page with more stuff as I explore the router.
 Hopefully this is helpful to others trying to get started on TP-Link vuln
 research! Meanwhile, please check out the 2 other vulns I found,
 [CVE-2025-15608](posts/ax53/cve-2025-15608) and
-[CVE-2025-15607](posts/ax53/cve-2025-15607).
+[CVE-2025-15607](posts/ax53/cve-2025-15607). I think the former is much more
+interesting in terms of technical depth and exploit techniques, so please do
+read it if you have the time!
