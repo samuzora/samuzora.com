@@ -32,6 +32,7 @@
     "vue": "^3.5.12"
   },
   "devDependencies": {
-    "@rollup/plugin-yaml": "^4.1.2"
+    "@rollup/plugin-yaml": "^4.1.2",
+    "baseline-browser-mapping": "^2.10.29"
   }
 }
