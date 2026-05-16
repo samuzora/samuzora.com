@@ -1,7 +1,7 @@
 ---
 title: A lamentation of 20 years
 date: 2026-03-29
-category: writeups
+category: opinions
 excerpt: 20 years past, 60 more to go (GPT willing)
 tags:
   - life
