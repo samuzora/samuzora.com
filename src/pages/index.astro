@@ -70,13 +70,15 @@ import TypedWrapper from "@components/TypedWrapper.vue";
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
           {cves.map((cve: any) => (
           <Card class="w-full h-[144px] md:w-[344px] lg:w-[300px] relative">
-            <h3 class="text-[--first-text-color]">
+            <h4 class="text-[--first-text-color]">
               <a href={cve.link} target="_blank">
                 {cve.id}
                 <i class="fa-regular fa-external-link"></i>
               </a>
-            </h3>
-            {cve.description}
+            </h4>
+            <p class="text-md font-[300] text-lg md:text-sm">
+              {cve.description}
+            </p>
             <div class="absolute bottom-5 right-5">
               {cve.writeup && 
                 <a href={cve.writeup}>

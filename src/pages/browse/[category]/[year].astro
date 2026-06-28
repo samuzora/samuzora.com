@@ -74,7 +74,7 @@ const { categories, years, posts } = Astro.props;
           <div class="pb-3">
             <a class="text-2xl" href={"/posts/" + post.id}>{post.data.title}</a>
           </div>
-          <div class="pb-3 font-[100]">
+          <div class="pb-3">
             {post.data.excerpt || (post.body.substring(0, 100) + "...")}
           </div>
           <div class="flex justify-between text-sm">
